@@ -75,7 +75,7 @@ class AppRouter {
         parentNavigatorKey: _rootNavigatorKey,
         path: '/scan_crop',
         builder: (context, state) {
-          final args = state.extra as Map<String, dynamic>;
+          final args = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : <String, dynamic>{};
           return ScanCropPage(
             originalImageBytes: args['imageBytes'],
             initialCorners: args['corners'],
@@ -90,7 +90,7 @@ class AppRouter {
         parentNavigatorKey: _rootNavigatorKey,
         path: '/scan_preview',
         builder: (context, state) {
-          final data = state.extra as Map<String, dynamic>;
+          final data = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : <String, dynamic>{};
           return ScanPreviewPage(
             originalImageBytes: data['imageBytes'],
             rawCapturedBytes: data['rawCapturedBytes'],
@@ -106,19 +106,25 @@ class AppRouter {
         parentNavigatorKey: _rootNavigatorKey,
         path: '/document_viewer',
         builder: (context, state) {
-          final doc = state.extra as ScannedDocument;
-          return DocumentViewerPage(document: doc);
+          if (state.extra is ScannedDocument) {
+            return DocumentViewerPage(document: state.extra as ScannedDocument);
+          }
+          return const Scaffold(body: Center(child: Text('Document not found')));
         },
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/single_page_viewer',
         builder: (context, state) {
-          final data = state.extra as Map<String, dynamic>;
-          return SinglePageViewerPage(
-            document: data['document'] as ScannedDocument,
-            initialPageIndex: (data['initialPageIndex'] as int?) ?? 0,
-          );
+          final data = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : <String, dynamic>{};
+          final doc = data['document'] as ScannedDocument?;
+          if (doc != null) {
+            return SinglePageViewerPage(
+              document: doc,
+              initialPageIndex: (data['initialPageIndex'] as int?) ?? 0,
+            );
+          }
+          return const Scaffold(body: Center(child: Text('Page not found')));
         },
       ),
       GoRoute(

@@ -514,45 +514,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                       },
                     ),
                   ),
-                  const SizedBox(height: 16),
-
-                  // Color filter selector (applies to the scan after capture)
-                  SizedBox(
-                    height: 30,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: DocumentFilterType.values.length,
-                      itemBuilder: (context, index) {
-                        final filter = DocumentFilterType.values[index];
-                        final isSelected = _scanFilter == filter;
-                        return GestureDetector(
-                          onTap: () => setState(() => _scanFilter = filter),
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFF00FFC6) : Colors.white12,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isSelected ? const Color(0xFF00FFC6) : Colors.white24,
-                              ),
-                            ),
-                            child: Text(
-                              _filterLabel(filter),
-                              style: TextStyle(
-                                color: isSelected ? Colors.black : Colors.white70,
-                                fontSize: 12,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 20),
 
                   // Bottom Action Bar: Grid Icon, Shutter Button, Gallery Icon
                   Padding(
