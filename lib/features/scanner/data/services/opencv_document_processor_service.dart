@@ -223,13 +223,13 @@ void _extractPaperCandidates(
 
     // 1. Polygon Approximation on Contour
     final perim = cv.arcLength(contour, true);
-    for (final eps in [0.012, 0.018, 0.025, 0.035, 0.045, 0.06, 0.08, 0.10]) {
+    for (final eps in [0.012, 0.018, 0.025, 0.035, 0.045, 0.06, 0.08, 0.10, 0.12]) {
       final approx = cv.approxPolyDP(contour, eps * perim, true);
       if (approx.length == 4 && cv.isContourConvex(approx)) {
         final pts = approx.toList();
         final qArea = _quadArea(pts);
         if (qArea >= minArea && qArea <= maxArea) {
-          final score = _scoreCandidateQuad(pts, gray, totalArea, qArea, rW, rH, methodWeight * 1.30);
+          final score = _scoreCandidateQuad(pts, gray, totalArea, qArea, rW, rH, methodWeight * 1.50);
           if (score > 0) {
             outList.add(_QuadCandidate(points: pts, area: qArea, score: score));
             found = true;
@@ -241,7 +241,7 @@ void _extractPaperCandidates(
         if (extPts.length == 4) {
           final qArea = _quadArea(extPts);
           if (qArea >= minArea && qArea <= maxArea) {
-            final score = _scoreCandidateQuad(extPts, gray, totalArea, qArea, rW, rH, methodWeight * 1.05);
+            final score = _scoreCandidateQuad(extPts, gray, totalArea, qArea, rW, rH, methodWeight * 1.20);
             if (score > 0) {
               outList.add(_QuadCandidate(points: extPts, area: qArea, score: score));
               found = true;
@@ -252,7 +252,7 @@ void _extractPaperCandidates(
       }
     }
 
-    // 2. 4-Segment Line Fitting on Contour
+    // 2. 4-Segment Line Fitting on Convex Hull
     final lineFittedPts = _fit4BoundaryLines(contour, rW, rH);
     if (lineFittedPts != null && lineFittedPts.length == 4) {
       final qArea = _quadArea(lineFittedPts);
@@ -265,28 +265,27 @@ void _extractPaperCandidates(
       }
     }
 
-    // 3. Extremal 4 Points directly from full contour
-    if (!found) {
-      final fullExtPts = _findExtremal4Points(contour);
-      if (fullExtPts.length == 4) {
-        final qArea = _quadArea(fullExtPts);
-        if (qArea >= minArea && qArea <= maxArea) {
-          final score = _scoreCandidateQuad(fullExtPts, gray, totalArea, qArea, rW, rH, methodWeight * 0.90);
-          if (score > 0) {
-            outList.add(_QuadCandidate(points: fullExtPts, area: qArea, score: score));
-          }
+    // 3. Extremal 4 Points directly from Convex Hull
+    final fullExtPts = _findExtremal4Points(contour);
+    if (fullExtPts.length == 4) {
+      final qArea = _quadArea(fullExtPts);
+      if (qArea >= minArea && qArea <= maxArea) {
+        final score = _scoreCandidateQuad(fullExtPts, gray, totalArea, qArea, rW, rH, methodWeight * 1.10);
+        if (score > 0) {
+          outList.add(_QuadCandidate(points: fullExtPts, area: qArea, score: score));
+          found = true;
         }
       }
     }
 
-    // 4. Oriented Bounding Rectangle (minAreaRect)
+    // 4. Oriented Minimum Area Bounding Rectangle (minAreaRect)
     try {
       final rotatedRect = cv.minAreaRect(contour);
       final boxPts = rotatedRect.points.map((p) => cv.Point(p.x.toInt(), p.y.toInt())).toList();
       if (boxPts.length == 4) {
         final qArea = _quadArea(boxPts);
         if (qArea >= minArea && qArea <= maxArea) {
-          final score = _scoreCandidateQuad(boxPts, gray, totalArea, qArea, rW, rH, methodWeight * 1.10);
+          final score = _scoreCandidateQuad(boxPts, gray, totalArea, qArea, rW, rH, methodWeight * 1.25);
           if (score > 0) {
             outList.add(_QuadCandidate(points: boxPts, area: qArea, score: score));
           }
@@ -406,20 +405,20 @@ List<cv.Point>? _fit4BoundaryLines(cv.VecPoint contour, int rW, int rH) {
 List<cv.Point> _findExtremal4Points(cv.VecPoint contour) {
   if (contour.isEmpty) return [];
 
-  cv.Point minSum = contour[0];
-  cv.Point maxSum = contour[0];
-  cv.Point minDiff = contour[0];
-  cv.Point maxDiff = contour[0];
+  cv.Point minSum = contour[0];  // Top-Left (min x+y)
+  cv.Point maxSum = contour[0];  // Bottom-Right (max x+y)
+  cv.Point minDiff = contour[0]; // Bottom-Left (min x-y: small x, large y)
+  cv.Point maxDiff = contour[0]; // Top-Right (max x-y: large x, small y)
 
-  for (var i = 0; i < contour.length; i++) {
-    final p = contour[i];
+  final pts = contour.toList();
+  for (final p in pts) {
     final sum = p.x + p.y;
     final diff = p.x - p.y;
 
     if (sum < minSum.x + minSum.y) minSum = p;
     if (sum > maxSum.x + maxSum.y) maxSum = p;
-    if (diff < minDiff.x - minDiff.y) minDiff = p;
     if (diff > maxDiff.x - maxDiff.y) maxDiff = p;
+    if (diff < minDiff.x - minDiff.y) minDiff = p;
   }
 
   return [minSum, maxDiff, maxSum, minDiff];
@@ -456,7 +455,7 @@ double _scoreCandidateQuad(
 
     if (mag1 == 0 || mag2 == 0) return 0.0;
     final cosAngle = (dot / (mag1 * mag2)).abs();
-    if (cosAngle > 0.60) return 0.0; // Angles must be reasonably rectangular
+    if (cosAngle > 0.65) return 0.0; // Angles must be reasonably rectangular
     anglePenalty += cosAngle;
   }
   final orthogonalityScore = (1.0 - (anglePenalty / 4.0)).clamp(0.2, 1.0);
@@ -471,31 +470,31 @@ double _scoreCandidateQuad(
 
   final wRatio = min(wTop, wBottom) / max(wTop, wBottom);
   final hRatio = min(hLeft, hRight) / max(hLeft, hRight);
-  if (wRatio < 0.45 || hRatio < 0.45) return 0.0;
+  if (wRatio < 0.40 || hRatio < 0.40) return 0.0;
 
   final avgW = (wTop + wBottom) / 2.0;
   final avgH = (hLeft + hRight) / 2.0;
   final aspect = avgW / avgH;
-  if (aspect < 0.30 || aspect > 3.0) return 0.0;
+  if (aspect < 0.25 || aspect > 4.0) return 0.0;
 
-  // 3. Document Area Score: prefer normal documents (15% to 85% of camera frame)
+  // 3. Document Area Score: prefer normal documents (10% to 90% of camera frame)
   final areaRatio = (area / totalArea).clamp(0.0, 1.0);
   double areaScore;
-  if (areaRatio > 0.90) {
+  if (areaRatio > 0.92) {
     areaScore = 0.20; // Heavily penalize full-frame
-  } else if (areaRatio >= 0.12 && areaRatio <= 0.85) {
+  } else if (areaRatio >= 0.10 && areaRatio <= 0.88) {
     areaScore = 1.0 + (0.8 * areaRatio); // Sweet spot for documents
   } else {
     areaScore = 0.4 + areaRatio;
   }
 
-  // 4. Edge proximity penalty: heavily penalize any quad glued to frame borders
+  // 4. Edge proximity penalty: penalize any quad glued to frame borders
   double edgePenalty = 1.0;
   final marginX = (rW * 0.02).round();
   final marginY = (rH * 0.02).round();
   for (final p in pts) {
     if (p.x <= marginX || p.x >= (rW - marginX) || p.y <= marginY || p.y >= (rH - marginY)) {
-      edgePenalty *= 0.40; // 60% penalty per corner on image boundary
+      edgePenalty *= 0.50;
     }
   }
 
@@ -505,9 +504,9 @@ double _scoreCandidateQuad(
     final cx = ((tl.x + tr.x + br.x + bl.x) / 4.0).round().clamp(0, rW - 1);
     final cy = ((tl.y + tr.y + br.y + bl.y) / 4.0).round().clamp(0, rH - 1);
     final centerVal = gray.at<int>(cy, cx);
-    if (centerVal < 80) {
-      interiorScore = 0.2; // Too dark inside to be white paper
-    } else if (centerVal >= 130) {
+    if (centerVal < 70) {
+      interiorScore = 0.3; // Too dark inside to be white paper
+    } else if (centerVal >= 120) {
       interiorScore = 1.3; // Confirmed bright paper
     }
   } catch (_) {}
@@ -515,44 +514,35 @@ double _scoreCandidateQuad(
   return 100.0 * orthogonalityScore * areaScore * weightModifier * wRatio * hRatio * edgePenalty * interiorScore;
 }
 
-/// Sort 4 detected points into (TL, TR, BR, BL) using sum & difference method with centroid fallback.
+/// Sort 4 detected points into (TL, TR, BR, BL) using polar angle sorting with top-left anchor.
 (cv.Point, cv.Point, cv.Point, cv.Point) _sortCorners(List<cv.Point> pts) {
   if (pts.length != 4) {
     return (cv.Point(0, 0), cv.Point(0, 0), cv.Point(0, 0), cv.Point(0, 0));
   }
 
+  // Centroid
   final cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4.0;
   final cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4.0;
 
-  cv.Point tl = pts[0], tr = pts[0], br = pts[0], bl = pts[0];
-  double minSum = double.infinity, maxSum = -double.infinity;
-  double minDiff = double.infinity, maxDiff = -double.infinity;
+  // Sort clockwise
+  final list = List<cv.Point>.from(pts);
+  list.sort((a, b) => atan2(a.y - cy, a.x - cx).compareTo(atan2(b.y - cy, b.x - cx)));
 
-  for (final p in pts) {
-    final sum = (p.x + p.y).toDouble();
-    final diff = (p.x - p.y).toDouble();
-
-    if (sum < minSum) { minSum = sum; tl = p; }
-    if (sum > maxSum) { maxSum = sum; br = p; }
-    if (diff > maxDiff) { maxDiff = diff; tr = p; }
-    if (diff < minDiff) { minDiff = diff; bl = p; }
-  }
-
-  final unique = {tl, tr, br, bl};
-  if (unique.length < 4) {
-    final list = List<cv.Point>.from(pts);
-    list.sort((a, b) => atan2(a.y - cy, a.x - cx).compareTo(atan2(b.y - cy, b.x - cx)));
-    int tlIdx = 0;
-    double bestSum = double.infinity;
-    for (int i = 0; i < 4; i++) {
-      final s = (list[i].x + list[i].y).toDouble();
-      if (s < bestSum) { bestSum = s; tlIdx = i; }
+  // Identify Top-Left as the point with smallest (x + y)
+  int tlIdx = 0;
+  double minSum = double.infinity;
+  for (int i = 0; i < 4; i++) {
+    final s = (list[i].x + list[i].y).toDouble();
+    if (s < minSum) {
+      minSum = s;
+      tlIdx = i;
     }
-    tl = list[tlIdx];
-    tr = list[(tlIdx + 1) % 4];
-    br = list[(tlIdx + 2) % 4];
-    bl = list[(tlIdx + 3) % 4];
   }
+
+  final tl = list[tlIdx];
+  final tr = list[(tlIdx + 1) % 4];
+  final br = list[(tlIdx + 2) % 4];
+  final bl = list[(tlIdx + 3) % 4];
 
   return (tl, tr, br, bl);
 }

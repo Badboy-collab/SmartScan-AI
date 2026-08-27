@@ -91,8 +91,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final previousController = _cameraController;
     final CameraController cameraController = CameraController(
       _cameras[cameraIndex],
-      // HD toggle controls capture/preview resolution
-      _isHdEnabled ? ResolutionPreset.veryHigh : ResolutionPreset.medium,
+      // Use maximum native camera sensor resolution for sharp text & receipts
+      _isHdEnabled ? ResolutionPreset.max : ResolutionPreset.ultraHigh,
       enableAudio: false,
     );
 
