@@ -21,9 +21,22 @@ class LocalDocumentRepository {
   Future<List<ScannedDocument>> getAllDocuments() async {
     try {
       final file = await _getIndexFile();
-      final String content = await file.readAsString();
-      final List<dynamic> jsonList = jsonDecode(content);
-      return jsonList.map((e) => ScannedDocument.fromJson(e)).toList();
+      if (await file.exists()) {
+        final String content = await file.readAsString();
+        if (content.trim().isNotEmpty) {
+          final List<dynamic> jsonList = jsonDecode(content);
+          return jsonList.map((e) => ScannedDocument.fromJson(e as Map<String, dynamic>)).toList();
+        }
+      }
+      // Try backup file if main file is empty
+      final dir = await getApplicationDocumentsDirectory();
+      final backupFile = File(p.join(dir.path, '$_indexFileName.bak'));
+      if (await backupFile.exists()) {
+        final String content = await backupFile.readAsString();
+        final List<dynamic> jsonList = jsonDecode(content);
+        return jsonList.map((e) => ScannedDocument.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      return [];
     } catch (e) {
       return [];
     }
@@ -51,8 +64,24 @@ class LocalDocumentRepository {
   }
 
   Future<void> _saveAll(List<ScannedDocument> docs) async {
-    final file = await _getIndexFile();
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File(p.join(dir.path, _indexFileName));
+    final tmpFile = File(p.join(dir.path, '$_indexFileName.tmp'));
+    final bakFile = File(p.join(dir.path, '$_indexFileName.bak'));
+
     final String content = jsonEncode(docs.map((e) => e.toJson()).toList());
-    await file.writeAsString(content);
+    
+    // 1. Write to temp file
+    await tmpFile.writeAsString(content, flush: true);
+    
+    // 2. Backup existing file if present
+    if (await file.exists()) {
+      try {
+        await file.copy(bakFile.path);
+      } catch (_) {}
+    }
+    
+    // 3. Atomically rename temp file to target
+    await tmpFile.rename(file.path);
   }
 }

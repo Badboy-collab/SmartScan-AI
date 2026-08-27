@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import '../../features/documents/presentation/providers/document_provider.dart';
@@ -18,7 +19,7 @@ class ImportUtils {
       final pickedFiles = await picker.pickMultiImage();
       if (pickedFiles.isNotEmpty) {
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Processing imported image...')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Processing imported images...')));
         
         if (pickedFiles.length == 1) {
           final file = File(pickedFiles.first.path);
@@ -37,14 +38,32 @@ class ImportUtils {
           return;
         }
 
-        // Multiple images logic
+        // Multiple images: copy to permanent internal storage
         final provider = getIt<DocumentProvider>();
         final docId = const Uuid().v4();
         final now = DateTime.now();
-        
-        List<String> validPaths = [];
-        for (final pf in pickedFiles) {
-          validPaths.add(pf.path); 
+
+        final appDir = await getApplicationDocumentsDirectory();
+        final docDir = Directory(p.join(appDir.path, 'documents', docId));
+        if (!await docDir.exists()) await docDir.create(recursive: true);
+
+        List<String> permanentPagePaths = [];
+        String thumbnailPath = '';
+
+        for (int i = 0; i < pickedFiles.length; i++) {
+          final pf = pickedFiles[i];
+          final rawBytes = await File(pf.path).readAsBytes();
+          final normalizedBytes = await compute(_normalizeImageExif, rawBytes);
+          
+          final pageFile = File(p.join(docDir.path, 'page_${i + 1}.jpg'));
+          await pageFile.writeAsBytes(normalizedBytes);
+          permanentPagePaths.add(pageFile.path);
+
+          if (i == 0) {
+            final thumbFile = File(p.join(docDir.path, 'thumb.jpg'));
+            await thumbFile.writeAsBytes(normalizedBytes);
+            thumbnailPath = thumbFile.path;
+          }
         }
         
         final doc = ScannedDocument(
@@ -52,9 +71,9 @@ class ImportUtils {
           name: 'SmartScan ${now.month}-${now.day}-${now.year} ${now.hour}.${now.minute}',
           createdAt: now,
           updatedAt: now,
-          pagePaths: validPaths,
-          thumbnailPath: validPaths.isNotEmpty ? validPaths.first : '',
-          dirPath: validPaths.isNotEmpty ? p.dirname(validPaths.first) : '',
+          pagePaths: permanentPagePaths,
+          thumbnailPath: thumbnailPath.isNotEmpty ? thumbnailPath : (permanentPagePaths.isNotEmpty ? permanentPagePaths.first : ''),
+          dirPath: docDir.path,
         );
         
         await provider.addDocument(doc);

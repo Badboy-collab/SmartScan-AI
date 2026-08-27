@@ -1,51 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as p;
-import '../../../../core/di/injection.dart';
-import '../../../documents/presentation/providers/document_provider.dart';
-import '../../../documents/domain/entities/scanned_document.dart';
-import 'package:uuid/uuid.dart';
+import '../../../../core/utils/import_utils.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
 
   Future<void> _importImages(BuildContext context) async {
-    try {
-      final picker = ImagePicker();
-      final pickedFiles = await picker.pickMultiImage();
-      if (pickedFiles.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Processing images...')));
-      
-      final provider = getIt<DocumentProvider>();
-      final docId = const Uuid().v4();
-      final now = DateTime.now();
-      
-      List<String> validPaths = [];
-      for (final pf in pickedFiles) {
-        // Just save them directly as pages for now
-        // In a real pipeline, they'd go through crop/filter first.
-        validPaths.add(pf.path); 
-      }
-      
-      final doc = ScannedDocument(
-        id: docId,
-        name: 'SmartScan ${now.month}-${now.day}-${now.year} ${now.hour}.${now.minute}',
-        createdAt: now,
-        updatedAt: now,
-        pagePaths: validPaths,
-        thumbnailPath: validPaths.isNotEmpty ? validPaths.first : '',
-        dirPath: validPaths.isNotEmpty ? p.dirname(validPaths.first) : '',
-      );
-      
-      await provider.addDocument(doc);
-      if (context.mounted) {
-        context.push('/document_viewer', extra: doc);
-      }
-    }
-    } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
+    await ImportUtils.importImages(context);
   }
 
   void _unimplemented(BuildContext context) {

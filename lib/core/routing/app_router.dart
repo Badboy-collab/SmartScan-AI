@@ -5,6 +5,7 @@ import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/scanner/presentation/pages/scanner_page.dart';
 import '../../features/scanner/presentation/pages/scan_crop_page.dart';
 import '../../features/scanner/presentation/pages/scan_preview_page.dart';
+import '../../features/scanner/domain/entities/document_filter_type.dart';
 import '../../features/documents/domain/entities/scanned_document.dart';
 import '../../features/documents/presentation/pages/document_viewer_page.dart';
 import '../../features/home/presentation/pages/documents_page.dart';
@@ -79,6 +80,7 @@ class AppRouter {
             originalImageBytes: args['imageBytes'],
             initialCorners: args['corners'],
             rotation: args['rotation'] ?? 0,
+            filterIndex: args['filter'] ?? DocumentFilterType.auto.index,
             targetDocumentId: args['targetDocumentId'],
             targetPageIndex: args['targetPageIndex'],
           );
@@ -94,6 +96,7 @@ class AppRouter {
             rawCapturedBytes: data['rawCapturedBytes'],
             initialCorners: data['corners'],
             rotation: data['rotation'],
+            initialFilterIndex: data['filter'] ?? DocumentFilterType.auto.index,
             targetDocumentId: data['targetDocumentId'],
             targetPageIndex: data['targetPageIndex'],
           );

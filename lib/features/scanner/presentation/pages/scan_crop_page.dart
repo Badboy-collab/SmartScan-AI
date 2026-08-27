@@ -14,6 +14,7 @@ class ScanCropPage extends StatefulWidget {
   final int rotation;
   final String? targetDocumentId;
   final int? targetPageIndex;
+  final int filterIndex;
 
   const ScanCropPage({
     super.key,
@@ -22,6 +23,7 @@ class ScanCropPage extends StatefulWidget {
     required this.rotation,
     this.targetDocumentId,
     this.targetPageIndex,
+    this.filterIndex = 1, // DocumentFilterType.auto
   });
 
   @override
@@ -119,6 +121,7 @@ class _ScanCropPageState extends State<ScanCropPage> {
             bottomRight: const Offset(1,1), bottomLeft: const Offset(0,1),
           ),
           'rotation': 0,
+          'filter': widget.filterIndex,
           'targetDocumentId': widget.targetDocumentId,
           'targetPageIndex': widget.targetPageIndex,
         });

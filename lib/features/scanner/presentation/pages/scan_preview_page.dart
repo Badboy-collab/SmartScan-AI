@@ -16,6 +16,7 @@ class ScanPreviewPage extends StatefulWidget {
 
   final String? targetDocumentId;
   final int? targetPageIndex;
+  final int initialFilterIndex;
 
   const ScanPreviewPage({
     super.key,
@@ -25,6 +26,7 @@ class ScanPreviewPage extends StatefulWidget {
     required this.rotation,
     this.targetDocumentId,
     this.targetPageIndex,
+    this.initialFilterIndex = 1, // DocumentFilterType.auto
   });
 
   @override
@@ -81,12 +83,14 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
   }
 
   Future<void> _initMagicEnhancement() async {
-    // 1. First apply Auto Recommended enhancement from pristine source
-    final enhanced = await _processor.applyFilter(widget.originalImageBytes, DocumentFilterType.auto);
+    // 1. First apply the filter chosen on the camera screen (default: Auto)
+    final int idx = widget.initialFilterIndex.clamp(0, DocumentFilterType.values.length - 1);
+    final DocumentFilterType initialFilter = DocumentFilterType.values[idx];
+    final enhanced = await _processor.applyFilter(widget.originalImageBytes, initialFilter);
     if (mounted) {
       setState(() {
         _filteredBytes = enhanced;
-        _currentFilter = DocumentFilterType.auto;
+        _currentFilter = initialFilter;
       });
       // 2. Play the signature Laser Sweep animation
       _sweepController.forward(from: 0.0);

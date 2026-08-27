@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/import_utils.dart';
+import '../../domain/entities/document_filter_type.dart';
 
 class ScannerPage extends StatefulWidget {
   final String? targetDocumentId;
@@ -24,6 +25,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   PermissionStatus _permissionStatus = PermissionStatus.denied;
   FlashMode _flashMode = FlashMode.off;
   int _selectedCameraIndex = 0;
+
+  // Scan color filter chosen before capture (applied on the preview page)
+  DocumentFilterType _scanFilter = DocumentFilterType.auto;
+  bool _showGrid = false;
 
   // Tap-to-focus feedback ring
   final GlobalKey _previewKey = GlobalKey();
@@ -86,7 +91,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final previousController = _cameraController;
     final CameraController cameraController = CameraController(
       _cameras[cameraIndex],
-      ResolutionPreset.veryHigh, // 1080p-class: smooth preview + sharp text (max preset lags & blurs on many phones)
+      // HD toggle controls capture/preview resolution
+      _isHdEnabled ? ResolutionPreset.veryHigh : ResolutionPreset.medium,
       enableAudio: false,
     );
 
@@ -113,12 +119,38 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
+  /// Re-creates the camera when the HD toggle changes the resolution preset.
+  Future<void> _reinitCameraForResolution() async {
+    if (_cameras.isEmpty) return;
+    if (mounted) setState(() => _isCameraInitialized = false);
+    await _setCamera(_selectedCameraIndex);
+  }
+
   void _switchCamera() {
     if (_cameras.length > 1) {
       _selectedCameraIndex = (_selectedCameraIndex + 1) % _cameras.length;
       _isCameraInitialized = false;
       setState(() {});
       _setCamera(_selectedCameraIndex);
+    }
+  }
+
+  Future<void> _selectFlashMode(FlashMode mode) async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    try {
+      await controller.setFlashMode(mode);
+      if (mounted) setState(() => _flashMode = mode);
+    } catch (e) {
+      debugPrint('Set flash mode error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Flash mode not supported on this camera'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
     }
   }
 
@@ -131,8 +163,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       case FlashMode.always: nextMode = FlashMode.torch; break;
       case FlashMode.torch: nextMode = FlashMode.off; break;
     }
-    await _cameraController!.setFlashMode(nextMode);
-    setState(() => _flashMode = nextMode);
+    _selectFlashMode(nextMode);
   }
 
   /// Safely turns the hardware flash/torch OFF (used on dispose, lifecycle
@@ -200,11 +231,29 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           'imageBytes': normalizedBytes,
           'corners': null, // Runs high-precision OpenCV detection on the captured photo
           'rotation': 0,
+          'filter': _scanFilter.index,
           'targetDocumentId': widget.targetDocumentId,
         });
       }
     } catch (e) {
       debugPrint('Error taking picture: $e');
+    }
+  }
+
+  String _filterLabel(DocumentFilterType type) {
+    switch (type) {
+      case DocumentFilterType.original:
+        return 'Original';
+      case DocumentFilterType.auto:
+        return 'Auto';
+      case DocumentFilterType.lighten:
+        return 'Lighten';
+      case DocumentFilterType.magic:
+        return 'Magic Color';
+      case DocumentFilterType.grayscale:
+        return 'Grayscale';
+      case DocumentFilterType.blackAndWhite:
+        return 'B&W';
     }
   }
 
@@ -280,6 +329,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               ),
             ),
 
+          // 1b. Optional 3x3 grid lines (toggled from camera settings)
+          if (_showGrid)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(painter: _GridPainter()),
+              ),
+            ),
+
           // 2. Top Bar matching sc.jpg (Close, Flash, HD, More)
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
@@ -294,16 +351,66 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                 ),
                 Row(
                   children: [
-                    // Flash Toggle
-                    IconButton(
-                      icon: Icon(_getFlashIcon(), color: Colors.white, size: 26),
-                      onPressed: _toggleFlash,
+                    // Flash Mode 1-Click Popup Menu
+                    PopupMenuButton<FlashMode>(
+                      initialValue: _flashMode,
+                      tooltip: 'Flash Mode',
+                      color: const Color(0xFF1E293B),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      icon: Icon(
+                        _getFlashIcon(),
+                        color: _flashMode != FlashMode.off ? const Color(0xFF00D4AA) : Colors.white,
+                        size: 26,
+                      ),
+                      onSelected: _selectFlashMode,
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: FlashMode.auto,
+                          child: Row(
+                            children: [
+                              Icon(Icons.flash_auto, color: _flashMode == FlashMode.auto ? const Color(0xFF00D4AA) : Colors.white70, size: 20),
+                              const SizedBox(width: 12),
+                              Text('Auto Flash', style: TextStyle(color: _flashMode == FlashMode.auto ? const Color(0xFF00D4AA) : Colors.white, fontSize: 14, fontWeight: _flashMode == FlashMode.auto ? FontWeight.bold : FontWeight.normal)),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: FlashMode.always,
+                          child: Row(
+                            children: [
+                              Icon(Icons.flash_on, color: _flashMode == FlashMode.always ? const Color(0xFF00D4AA) : Colors.white70, size: 20),
+                              const SizedBox(width: 12),
+                              Text('Flash On', style: TextStyle(color: _flashMode == FlashMode.always ? const Color(0xFF00D4AA) : Colors.white, fontSize: 14, fontWeight: _flashMode == FlashMode.always ? FontWeight.bold : FontWeight.normal)),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: FlashMode.torch,
+                          child: Row(
+                            children: [
+                              Icon(Icons.highlight, color: _flashMode == FlashMode.torch ? const Color(0xFF00D4AA) : Colors.white70, size: 20),
+                              const SizedBox(width: 12),
+                              Text('Torch Light', style: TextStyle(color: _flashMode == FlashMode.torch ? const Color(0xFF00D4AA) : Colors.white, fontSize: 14, fontWeight: _flashMode == FlashMode.torch ? FontWeight.bold : FontWeight.normal)),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: FlashMode.off,
+                          child: Row(
+                            children: [
+                              Icon(Icons.flash_off, color: _flashMode == FlashMode.off ? const Color(0xFF00D4AA) : Colors.white60, size: 20),
+                              const SizedBox(width: 12),
+                              Text('Flash Off', style: TextStyle(color: _flashMode == FlashMode.off ? const Color(0xFF00D4AA) : Colors.white, fontSize: 14, fontWeight: _flashMode == FlashMode.off ? FontWeight.bold : FontWeight.normal)),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(width: 8),
 
                     // HD Badge Button
                     GestureDetector(
-                      onTap: () {
+                      onTap: () async {
                         setState(() => _isHdEnabled = !_isHdEnabled);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -311,6 +418,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                             duration: const Duration(seconds: 1),
                           ),
                         );
+                        // Actually switch the camera resolution now
+                        await _reinitCameraForResolution();
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -407,6 +516,44 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 16),
 
+                  // Color filter selector (applies to the scan after capture)
+                  SizedBox(
+                    height: 30,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: DocumentFilterType.values.length,
+                      itemBuilder: (context, index) {
+                        final filter = DocumentFilterType.values[index];
+                        final isSelected = _scanFilter == filter;
+                        return GestureDetector(
+                          onTap: () => setState(() => _scanFilter = filter),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0xFF00FFC6) : Colors.white12,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFF00FFC6) : Colors.white24,
+                              ),
+                            ),
+                            child: Text(
+                              _filterLabel(filter),
+                              style: TextStyle(
+                                color: isSelected ? Colors.black : Colors.white70,
+                                fontSize: 12,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
                   // Bottom Action Bar: Grid Icon, Shutter Button, Gallery Icon
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 28.0),
@@ -494,7 +641,20 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.grid_on, color: Colors.tealAccent),
               title: const Text('Grid Lines', style: TextStyle(color: Colors.white)),
-              trailing: Switch(value: true, activeColor: Colors.tealAccent, onChanged: (v) {}),
+              trailing: Switch(
+                value: _showGrid,
+                activeColor: Colors.tealAccent,
+                onChanged: (v) {
+                  Navigator.pop(ctx);
+                  setState(() => _showGrid = v);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(v ? 'Grid lines enabled' : 'Grid lines disabled'),
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ),
@@ -561,4 +721,23 @@ Uint8List _normalizeCameraExif(Uint8List rawBytes) {
     debugPrint('Camera EXIF normalization error: $e');
     return rawBytes;
   }
+}
+
+/// Draws a subtle 3x3 rule-of-thirds grid over the camera preview.
+class _GridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.55)
+      ..strokeWidth = 1.0;
+    for (int i = 1; i <= 2; i++) {
+      final dx = size.width * i / 3;
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paint);
+      final dy = size.height * i / 3;
+      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
