@@ -46,11 +46,79 @@ class OpencvDocumentProcessorService implements IDocumentProcessor {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// EXIF ORIENTATION PARSER (0.001ms instantaneous header inspection)
+// ═══════════════════════════════════════════════════════════════════════════
+int _getExifOrientation(Uint8List bytes) {
+  if (bytes.length < 12) return 1;
+  if (bytes[0] != 0xFF || bytes[1] != 0xD8) return 1; // Not JPEG
+
+  int offset = 2;
+  while (offset + 4 < bytes.length) {
+    if (bytes[offset] != 0xFF) break;
+    final marker = bytes[offset + 1];
+    if (marker == 0xDA || marker == 0xD9) break; // SOS or EOI
+
+    final length = (bytes[offset + 2] << 8) | bytes[offset + 3];
+    if (marker == 0xE1) { // APP1 EXIF marker
+      final exifOffset = offset + 4;
+      if (exifOffset + 6 < bytes.length &&
+          bytes[exifOffset] == 0x45 &&
+          bytes[exifOffset + 1] == 0x78 &&
+          bytes[exifOffset + 2] == 0x69 &&
+          bytes[exifOffset + 3] == 0x66 &&
+          bytes[exifOffset + 4] == 0x00 &&
+          bytes[exifOffset + 5] == 0x00) {
+        final tiffOffset = exifOffset + 6;
+        if (tiffOffset + 8 > bytes.length) break;
+        final isLittleEndian = bytes[tiffOffset] == 0x49 && bytes[tiffOffset + 1] == 0x49;
+        int read16(int o) => isLittleEndian
+            ? (bytes[o] | (bytes[o + 1] << 8))
+            : ((bytes[o] << 8) | bytes[o + 1]);
+        int read32(int o) => isLittleEndian
+            ? (bytes[o] | (bytes[o + 1] << 8) | (bytes[o + 2] << 16) | (bytes[o + 3] << 24))
+            : ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]);
+
+        final ifdOffset = tiffOffset + read32(tiffOffset + 4);
+        if (ifdOffset + 2 < bytes.length) {
+          final entryCount = read16(ifdOffset);
+          for (int i = 0; i < entryCount; i++) {
+            final entryOffset = ifdOffset + 2 + (i * 12);
+            if (entryOffset + 12 > bytes.length) break;
+            final tag = read16(entryOffset);
+            if (tag == 0x0112) { // Orientation Tag
+              return read16(entryOffset + 8);
+            }
+          }
+        }
+      }
+      break;
+    }
+    offset += 2 + length;
+  }
+  return 1;
+}
+
+cv.Mat _decodeAndRotateMat(Uint8List bytes) {
+  var mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
+  if (mat.isEmpty) return mat;
+
+  final orientation = _getExifOrientation(bytes);
+  if (orientation == 6) {
+    mat = cv.rotate(mat, cv.ROTATE_90_CLOCKWISE);
+  } else if (orientation == 8) {
+    mat = cv.rotate(mat, cv.ROTATE_90_COUNTERCLOCKWISE);
+  } else if (orientation == 3) {
+    mat = cv.rotate(mat, cv.ROTATE_180);
+  }
+  return mat;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 1. ROBUST MULTI-STRATEGY DOCUMENT CORNER DETECTION (ISOLATE)
 // ═══════════════════════════════════════════════════════════════════════════
 Future<DocumentCorners?> _detectCornersIsolate(Uint8List bytes) async {
   try {
-    final mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
+    final mat = _decodeAndRotateMat(bytes);
     if (mat.isEmpty) return null;
 
     final origW = mat.cols;
@@ -566,7 +634,7 @@ Future<Uint8List> _cropIsolate(Map<String, dynamic> params) async {
   final Map<String, double> c = params['corners'];
   int rotation = params['rotation'];
 
-  final mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
+  final mat = _decodeAndRotateMat(bytes);
   if (mat.isEmpty) return bytes;
 
   final width = mat.cols;
@@ -620,7 +688,7 @@ Future<Uint8List> _filterIsolate(Map<String, dynamic> params) async {
   final int typeIndex = params['type'];
   final DocumentFilterType type = DocumentFilterType.values[typeIndex];
 
-  final mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
+  final mat = _decodeAndRotateMat(bytes);
   if (mat.isEmpty) return bytes;
 
   final origW = mat.cols;
