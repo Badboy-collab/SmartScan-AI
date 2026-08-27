@@ -113,7 +113,7 @@ class _ScanCropPageState extends State<ScanCropPage> {
       );
       
       if (mounted) {
-        context.pushReplacement('/scan_preview', extra: {
+        context.push('/scan_preview', extra: {
           'imageBytes': croppedBytes,
           'rawCapturedBytes': _currentImageBytes,
           'corners': DocumentCorners(

@@ -230,13 +230,23 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final rawBytes = await image.readAsBytes();
 
       if (mounted) {
-        context.push('/scan_crop', extra: {
+        await context.push('/scan_crop', extra: {
           'imageBytes': rawBytes,
           'corners': null, // OpenCV runs in C++ in background isolate
           'rotation': 0,
           'filter': _scanFilter.index,
           'targetDocumentId': widget.targetDocumentId,
         });
+
+        // Seamlessly restore the camera viewfinder when user pops back
+        if (mounted) {
+          setState(() => _isCapturing = false);
+          if (_cameraController == null || !_cameraController!.value.isInitialized) {
+            await _initCamera();
+          } else {
+            setState(() => _isCameraInitialized = true);
+          }
+        }
       }
     } catch (e) {
       debugPrint('Error taking picture: $e');

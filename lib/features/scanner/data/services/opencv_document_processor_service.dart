@@ -695,102 +695,79 @@ Future<Uint8List> _filterIsolate(Map<String, dynamic> params) async {
   final origH = mat.rows;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 1. MULTI-SCALE PER-CHANNEL ILLUMINATION SURFACE ESTIMATION
+  // 1. MULTI-SCALE ILLUMINATION SURFACE ESTIMATION (WITH DILATION)
   // ═══════════════════════════════════════════════════════════════════════════
   final channels = cv.split(mat); // B, G, R
   final List<cv.Mat> normChannels = [];
 
+  final kDilate = cv.getStructuringElement(cv.MORPH_RECT, (7, 7));
   for (int i = 0; i < 3; i++) {
     final ch = channels[i];
     final bgSmall = cv.resize(ch, (256, (256 * origH / origW).round()), interpolation: cv.INTER_AREA);
-    final bgBlurredSmall = cv.gaussianBlur(bgSmall, (31, 31), 14.0);
+    // Morphological dilation removes dark text from the background estimate so headers & dark ink never wash out!
+    final dilated = cv.dilate(bgSmall, kDilate);
+    final bgBlurredSmall = cv.gaussianBlur(dilated, (21, 21), 8.0);
     final bgFull = cv.resize(bgBlurredSmall, (origW, origH), interpolation: cv.INTER_LINEAR);
     
-    // Per-channel division: All paper colors (white, yellow, grey shadow) normalize to clean 255!
+    // Per-channel division: All paper areas normalize to pure 255 white
     final divCh = cv.divide(ch, bgFull, scale: 255.0);
     normChannels.add(divCh);
   }
 
-  // Normalized color image (Pure clean neutral paper, zero color casts)
+  // Normalized color image (Pure clean neutral paper, zero shadows)
   final normColor = cv.merge(cv.VecMat.fromList(normChannels));
 
   // Compute normalized grayscale for text detection & stroke restoration
   final normGray = cv.cvtColor(normColor, cv.COLOR_BGR2GRAY);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2. TEXT-AWARE INK DEEPENING & SAFE STROKE RESTORATION
+  // 2. CAMSCANNER-GRADE DEEP INK & STROKE HEALING LOOK-UP TABLE
   // ═══════════════════════════════════════════════════════════════════════════
-  // High-Precision Ink LUT: Preserves paper [246-255], deepens text [0-245]
-  final magicInkLutValues = <int>[];
+  final deepInkLutValues = <int>[];
   for (int i = 0; i < 256; i++) {
-    if (i >= 246) {
-      magicInkLutValues.add(255);
+    if (i >= 238) {
+      deepInkLutValues.add(255); // Pure pristine paper background
     } else {
-      final double norm = i / 246.0;
-      // Power 2.1 deepens handwriting, signatures, numbers, and fine table lines
-      final double deep = 255.0 * pow(norm, 2.1);
-      magicInkLutValues.add(deep.round().clamp(0, 255));
+      final double norm = i / 238.0;
+      // Power 2.3 aggressively deepens all printed text, ink, signatures, and table lines
+      final double deep = 255.0 * pow(norm, 2.3);
+      deepInkLutValues.add(deep.round().clamp(0, 255));
     }
   }
-  final magicInkLut = cv.Mat.fromList(1, 256, cv.MatType.CV_8UC1, magicInkLutValues);
+  final deepInkLut = cv.Mat.fromList(1, 256, cv.MatType.CV_8UC1, deepInkLutValues);
 
-  final autoInkLutValues = <int>[];
-  for (int i = 0; i < 256; i++) {
-    if (i >= 248) {
-      autoInkLutValues.add(255);
-    } else {
-      final double norm = i / 248.0;
-      final double deep = 255.0 * pow(norm, 1.7);
-      autoInkLutValues.add(deep.round().clamp(0, 255));
-    }
-  }
-  final autoInkLut = cv.Mat.fromList(1, 256, cv.MatType.CV_8UC1, autoInkLutValues);
+  final kStroke = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3));
 
   cv.Mat result;
 
   switch (type) {
-    // ── MAGIC COLOR: Pristine White Paper + Deep Vivid Ink + Reconnected Handwriting & Tables ──
-    case DocumentFilterType.magic:
-      final List<cv.Mat> magicChannels = [];
-      for (int i = 0; i < 3; i++) {
-        final deepened = cv.LUT(normChannels[i], magicInkLut);
-        magicChannels.add(deepened);
-      }
-      final mergedMagic = cv.merge(cv.VecMat.fromList(magicChannels));
-
-      // Safe Stroke Healing on Text & Table Lines (3x3 closing reconnects tiny micro-gaps)
-      final kStroke = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3));
-      final closedMagic = cv.morphologyEx(mergedMagic, cv.MORPH_CLOSE, kStroke);
-      // Blend 85% original deepened with 15% closed to preserve natural stroke texture
-      final healedMagic = cv.addWeighted(mergedMagic, 0.85, closedMagic, 0.15, 0.0);
-
-      // Controlled Text-Aware Unsharp Sharpening (Zero Halos)
-      final blur = cv.gaussianBlur(healedMagic, (0, 0), 0.9);
-      result = cv.addWeighted(healedMagic, 1.30, blur, -0.30, 0.0);
-      break;
-
-    // ── AUTO: Natural Document Warmth + Balanced Text Clarity + Neutral White Balance ──
+    // ── AUTO / MAGIC COLOR: Ultra-Sharp Deep Black Ink + Pure Paper + Reconnected Strokes ──
     case DocumentFilterType.auto:
-      final List<cv.Mat> autoChannels = [];
+    case DocumentFilterType.magic:
+      final List<cv.Mat> enhancedChannels = [];
       for (int i = 0; i < 3; i++) {
-        final deepened = cv.LUT(normChannels[i], autoInkLut);
-        autoChannels.add(deepened);
+        final deepened = cv.LUT(normChannels[i], deepInkLut);
+        enhancedChannels.add(deepened);
       }
-      final mergedAuto = cv.merge(cv.VecMat.fromList(autoChannels));
+      final mergedColor = cv.merge(cv.VecMat.fromList(enhancedChannels));
 
-      final blur = cv.gaussianBlur(mergedAuto, (0, 0), 0.8);
-      result = cv.addWeighted(mergedAuto, 1.20, blur, -0.20, 0.0);
+      // Reconnect fine handwriting, signatures, and invoice table lines
+      final closedColor = cv.morphologyEx(mergedColor, cv.MORPH_CLOSE, kStroke);
+      final healedColor = cv.addWeighted(mergedColor, 0.80, closedColor, 0.20, 0.0);
+
+      // Razor-sharp unsharp masking
+      final blur = cv.gaussianBlur(healedColor, (0, 0), 1.0);
+      result = cv.addWeighted(healedColor, 1.35, blur, -0.35, 0.0);
       break;
 
     // ── GRAYSCALE: High-Fidelity Monochrome (Crisp Dark Text on Pure Paper) ──
     case DocumentFilterType.grayscale:
-      final deepGray = cv.LUT(normGray, magicInkLut);
-      final kStroke = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3));
+      final deepGray = cv.LUT(normGray, deepInkLut);
       final closedGray = cv.morphologyEx(deepGray, cv.MORPH_CLOSE, kStroke);
-      final healedGray = cv.addWeighted(deepGray, 0.85, closedGray, 0.15, 0.0);
+      final healedGray = cv.addWeighted(deepGray, 0.80, closedGray, 0.20, 0.0);
 
-      final blur = cv.gaussianBlur(healedGray, (0, 0), 0.9);
-      final sharpGray = cv.addWeighted(healedGray, 1.30, blur, -0.30, 0.0);
+      final blurG = cv.gaussianBlur(healedGray, (0, 0), 1.0);
+      final sharpGray = cv.addWeighted(healedGray, 1.35, blurG, -0.35, 0.0);
       result = cv.cvtColor(sharpGray, cv.COLOR_GRAY2BGR);
       break;
 
@@ -805,11 +782,11 @@ Future<Uint8List> _filterIsolate(Map<String, dynamic> params) async {
     case DocumentFilterType.lighten:
       final lightenInkLutValues = <int>[];
       for (int i = 0; i < 256; i++) {
-        if (i >= 250) {
+        if (i >= 248) {
           lightenInkLutValues.add(255);
         } else {
-          final double norm = i / 250.0;
-          final double deep = 255.0 * pow(norm, 1.4);
+          final double norm = i / 248.0;
+          final double deep = 255.0 * pow(norm, 1.6);
           lightenInkLutValues.add(deep.round().clamp(0, 255));
         }
       }
@@ -820,8 +797,8 @@ Future<Uint8List> _filterIsolate(Map<String, dynamic> params) async {
         lightenChannels.add(deepened);
       }
       final mergedLighten = cv.merge(cv.VecMat.fromList(lightenChannels));
-      final blurL = cv.gaussianBlur(mergedLighten, (0, 0), 0.7);
-      result = cv.addWeighted(mergedLighten, 1.15, blurL, -0.15, 0.0);
+      final blurL = cv.gaussianBlur(mergedLighten, (0, 0), 0.8);
+      result = cv.addWeighted(mergedLighten, 1.20, blurL, -0.20, 0.0);
       break;
 
     case DocumentFilterType.original:
