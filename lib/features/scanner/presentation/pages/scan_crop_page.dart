@@ -133,36 +133,97 @@ class _ScanCropPageState extends State<ScanCropPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1E1E1E),
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: const Text('Adjust Crop'),
+  Future<bool> _showDiscardConfirmationDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF262626),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFFFB020), size: 24),
+            SizedBox(width: 10),
+            Text(
+              'Discard Scan?',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to discard this captured image? Your current scan will not be saved.',
+          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.auto_awesome),
-            tooltip: 'Auto Detect',
-            onPressed: _isProcessing ? null : _autoDetectCorners,
-          )
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep', style: TextStyle(color: Color(0xFF00FFC6), fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE53935),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
-      body: Stack(
-        children: [
-          InteractiveCropOverlay(
-            key: ValueKey(_renderKey),
-            imageBytes: _currentImageBytes,
-            initialCorners: _currentCorners,
-            onCornersChanged: (corners) {
-              _currentCorners = corners;
+    );
+    return result ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldDiscard = await _showDiscardConfirmationDialog();
+        if (shouldDiscard && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1E1E1E),
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: const Text('Adjust Crop'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () async {
+              final shouldDiscard = await _showDiscardConfirmationDialog();
+              if (shouldDiscard && context.mounted) {
+                context.pop();
+              }
             },
           ),
-          if (_isDetecting || _isProcessing)
-            Container(
-              color: Colors.black54,
-              child: Center(
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.auto_awesome),
+              tooltip: 'Auto Detect',
+              onPressed: _isProcessing ? null : _autoDetectCorners,
+            )
+          ],
+        ),
+        body: Stack(
+          children: [
+            InteractiveCropOverlay(
+              key: ValueKey(_renderKey),
+              imageBytes: _currentImageBytes,
+              initialCorners: _currentCorners,
+              onCornersChanged: (corners) {
+                _currentCorners = corners;
+              },
+            ),
+            if (_isDetecting || _isProcessing)
+              Container(
+                color: Colors.black54,
+                child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -215,8 +276,9 @@ class _ScanCropPageState extends State<ScanCropPage> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildBottomAction(IconData icon, String label, VoidCallback onTap) {
     return InkWell(

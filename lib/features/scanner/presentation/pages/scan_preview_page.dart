@@ -175,28 +175,89 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
     }
   }
 
+  Future<bool> _showDiscardConfirmationDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF262626),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFFFB020), size: 24),
+            SizedBox(width: 10),
+            Text(
+              'Discard Scan?',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to discard this document? Any unsaved edits and scans will be lost.',
+          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep', style: TextStyle(color: Color(0xFF00FFC6), fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE53935),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1E1E1E), // Dark background for preview
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-        title: TextField(
-          controller: _nameController,
-          style: const TextStyle(color: Colors.white, fontSize: 18),
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            hintText: 'Document Name',
-            hintStyle: TextStyle(color: Colors.white54),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldDiscard = await _showDiscardConfirmationDialog();
+        if (shouldDiscard && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1E1E1E), // Dark background for preview
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () async {
+              final shouldDiscard = await _showDiscardConfirmationDialog();
+              if (shouldDiscard && context.mounted) {
+                context.pop();
+              }
+            },
+          ),
+          title: TextField(
+            controller: _nameController,
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              hintText: 'Document Name',
+              hintStyle: TextStyle(color: Colors.white54),
+            ),
           ),
         ),
-      ),
-      body: Column(
-        children: [
-          // Preview Area with Magic Laser Sweep
-          Expanded(
+        body: Column(
+          children: [
+            // Preview Area with Magic Laser Sweep
+            Expanded(
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -339,8 +400,9 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildFilterThumbnail(DocumentFilterType filter) {
     final isSelected = _currentFilter == filter;
