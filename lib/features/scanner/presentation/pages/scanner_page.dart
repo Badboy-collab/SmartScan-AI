@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
@@ -91,8 +92,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final previousController = _cameraController;
     final CameraController cameraController = CameraController(
       _cameras[cameraIndex],
-      // Use maximum native camera sensor resolution for sharp text & receipts
-      _isHdEnabled ? ResolutionPreset.max : ResolutionPreset.ultraHigh,
+      // veryHigh (12MP/4K) gives ultra-sharp document clarity with instant 100ms shutter response
+      _isHdEnabled ? ResolutionPreset.veryHigh : ResolutionPreset.high,
       enableAudio: false,
     );
 
@@ -211,25 +212,27 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     });
   }
 
+  bool _isCapturing = false;
+
   Future<void> _captureImage() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized || _isCapturing) return;
+    
+    setState(() => _isCapturing = true);
+    HapticFeedback.lightImpact();
+
     try {
       final XFile image = await _cameraController!.takePicture();
 
-      // Turn the torch/flash OFF immediately so it never keeps burning while
-      // the user reviews the crop on the next screen.
+      // Turn off flash safely
       await _turnOffFlash();
       if (mounted) setState(() => _flashMode = FlashMode.off);
 
       final rawBytes = await image.readAsBytes();
-      
-      // Apply the exact same EXIF normalization as Import so geometry & detection are 100% identical!
-      final normalizedBytes = await compute(_normalizeCameraExif, rawBytes);
-      
+
       if (mounted) {
         context.push('/scan_crop', extra: {
-          'imageBytes': normalizedBytes,
-          'corners': null, // Runs high-precision OpenCV detection on the captured photo
+          'imageBytes': rawBytes,
+          'corners': null, // OpenCV runs in C++ in background isolate
           'rotation': 0,
           'filter': _scanFilter.index,
           'targetDocumentId': widget.targetDocumentId,
@@ -237,6 +240,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('Error taking picture: $e');
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
     }
   }
 
@@ -662,11 +667,33 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
   Widget _buildCaptureButton() {
     return GestureDetector(
-      onTap: _captureImage,
+      onTap: _isCapturing ? null : _captureImage,
       child: Container(
         height: 80, width: 80,
-        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 4), color: Colors.transparent),
-        child: Center(child: Container(height: 64, width: 64, decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white))),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 4),
+          color: Colors.transparent,
+        ),
+        child: Center(
+          child: _isCapturing
+              ? const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: Color(0xFF00FFC6),
+                  ),
+                )
+              : Container(
+                  height: 64,
+                  width: 64,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                  ),
+                ),
+        ),
       ),
     );
   }
