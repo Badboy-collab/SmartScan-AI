@@ -53,3 +53,8 @@ app.*.map.json
 /pkg.txt
 /ui*.xml
 /.ohmyagent/
+
+# Release signing - never commit
+android/key.properties
+*.jks
+*.keystore
