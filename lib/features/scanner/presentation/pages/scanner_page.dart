@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/app_settings.dart';
 import '../../../../core/utils/import_utils.dart';
 import '../../domain/entities/document_filter_type.dart';
 
@@ -74,13 +75,35 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   Future<void> _checkPermissionAndInitCamera() async {
     final status = await Permission.camera.request();
     if (mounted) setState(() => _permissionStatus = status);
-    if (status.isGranted) _initCamera();
+    if (!status.isGranted) return;
+    // Restore the remembered camera choices *before* the camera is created, so
+    // the viewfinder comes back exactly how the user left it.
+    await _loadPreferences();
+    await _initCamera();
+  }
+
+  /// Restores the saved flash mode and capture quality.
+  Future<void> _loadPreferences() async {
+    _flashMode = await AppSettings.flashMode();
+    _isHdEnabled = await AppSettings.hdCapture();
+    if (mounted) setState(() {});
   }
 
   Future<void> _initCamera() async {
     try {
       _cameras = await availableCameras();
-      if (_cameras.isNotEmpty) _setCamera(_selectedCameraIndex);
+      if (_cameras.isEmpty) return;
+      // `availableCameras()` order is platform/sensor dependent, so index 0 can
+      // be the front camera or an auxiliary lens (which has a tiny sensor and no
+      // flash). Always start on a rear camera.
+      if (_cameras[_selectedCameraIndex].lensDirection !=
+          CameraLensDirection.back) {
+        final backIndex = _cameras.indexWhere(
+          (c) => c.lensDirection == CameraLensDirection.back,
+        );
+        if (backIndex >= 0) _selectedCameraIndex = backIndex;
+      }
+      await _setCamera(_selectedCameraIndex);
     } catch (e) {
       debugPrint('Error initializing camera: $e');
     }
@@ -92,8 +115,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final previousController = _cameraController;
     final CameraController cameraController = CameraController(
       _cameras[cameraIndex],
-      // veryHigh (12MP/4K) gives ultra-sharp document clarity with instant 100ms shutter response
-      _isHdEnabled ? ResolutionPreset.veryHigh : ResolutionPreset.high,
+      // `max` lets CameraX pick the sensor's highest available size for BOTH the
+      // live preview and the captured file. Do NOT go back to `veryHigh`: that
+      // preset is only 1080p (~2MP), which is what made the preview look blocky
+      // and the scanned text soft on a high-megapixel phone.
+      _isHdEnabled ? ResolutionPreset.max : ResolutionPreset.high,
       enableAudio: false,
     );
 
@@ -111,7 +137,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       // NOTE: keep the platform default focus mode (continuous AF on Android
       // camera2/CameraX) — calling setFocusMode here would switch it to a
       // one-shot auto focus and make captures blurrier. Use tap-to-focus instead.
-      await cameraController.setFlashMode(_flashMode);
+      await _applyFlashMode(cameraController, _flashMode);
       if (mounted) {
         setState(() => _isCameraInitialized = true);
       }
@@ -136,12 +162,28 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
+  /// Applies [mode] to [controller] without ever throwing.
+  ///
+  /// Some lenses (front, macro, depth) report no flash hardware and
+  /// `setFlashMode` throws. Letting that escape aborted camera initialisation
+  /// entirely, leaving the screen stuck on the loading spinner.
+  Future<void> _applyFlashMode(CameraController controller, FlashMode mode) async {
+    try {
+      await controller.setFlashMode(mode);
+    } catch (e) {
+      debugPrint('Flash mode $mode is not supported by this camera: $e');
+    }
+  }
+
   Future<void> _selectFlashMode(FlashMode mode) async {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
     try {
       await controller.setFlashMode(mode);
       if (mounted) setState(() => _flashMode = mode);
+      // Remembered so re-opening the camera starts on the same mode (torch
+      // included) and nothing silently changes behind the user's back.
+      await AppSettings.setFlashMode(mode);
     } catch (e) {
       debugPrint('Set flash mode error: $e');
       if (mounted) {
@@ -168,13 +210,25 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   }
 
   /// Safely turns the hardware flash/torch OFF (used on dispose, lifecycle
-  /// pause, camera switch, and right after capture).
+  /// pause, and camera switch, where the controller is being torn down anyway).
+  /// Deliberately NOT called after a capture — see `_captureImage`.
   Future<void> _turnOffFlash() async {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
     try {
       await controller.setFlashMode(FlashMode.off);
     } catch (_) {}
+  }
+
+  /// Puts the physical LED out whenever the viewfinder leaves the screen.
+  ///
+  /// `FlashMode.torch` keeps the lamp lit continuously, so without this the torch
+  /// burned for as long as the user stayed on the crop page. Only the hardware is
+  /// switched off — `_flashMode` keeps the user's selection, which is re-applied
+  /// as soon as the viewfinder is visible again.
+  Future<void> _extinguishTorch() async {
+    if (_flashMode != FlashMode.torch) return;
+    await _turnOffFlash();
   }
 
   /// Maps a tap on the preview to a camera focus/exposure point and shows a ring.
@@ -223,11 +277,15 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     try {
       final XFile image = await _cameraController!.takePicture();
 
-      // Turn off flash safely
-      await _turnOffFlash();
-      if (mounted) setState(() => _flashMode = FlashMode.off);
+      // NOTE: the user's flash selection is deliberately NOT reset here.
+      // Forcing it back to `off` after every shot was exactly why the flash
+      // choice appeared to change by itself while scanning.
 
       final rawBytes = await image.readAsBytes();
+
+      // Put the LED out while the crop page covers the viewfinder; the
+      // selection itself is kept and re-applied once we come back.
+      await _extinguishTorch();
 
       if (mounted) {
         await context.push('/scan_crop', extra: {
@@ -244,6 +302,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           if (_cameraController == null || !_cameraController!.value.isInitialized) {
             await _initCamera();
           } else {
+            // Bring the remembered flash mode (torch included) back now that the
+            // viewfinder is visible again.
+            await _applyFlashMode(_cameraController!, _flashMode);
             setState(() => _isCameraInitialized = true);
           }
         }
@@ -426,10 +487,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                     // HD Badge Button
                     GestureDetector(
                       onTap: () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         setState(() => _isHdEnabled = !_isHdEnabled);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        await AppSettings.setHdCapture(_isHdEnabled);
+                        messenger.showSnackBar(
                           SnackBar(
-                            content: Text(_isHdEnabled ? 'HD Mode Enabled (High Quality)' : 'Standard Mode Enabled'),
+                            content: Text(_isHdEnabled ? 'HD Mode: full sensor resolution' : 'Standard Mode: 720p'),
                             duration: const Duration(seconds: 1),
                           ),
                         );
@@ -653,7 +716,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               const SizedBox(height: 24),
               Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white), textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              const Text('We need access to your camera to scan documents.', style: TextStyle(fontSize: 14, color: Colors.white70), textAlign: TextAlign.center),
+              const Text('AH Scanner needs camera access to scan documents.', style: TextStyle(fontSize: 14, color: Colors.white70), textAlign: TextAlign.center),
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: onPressed,

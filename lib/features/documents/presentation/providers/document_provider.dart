@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/entities/scanned_document.dart';
 import '../../data/repositories/local_document_repository.dart';
 import '../../data/services/export_service.dart';
+import '../../../../core/utils/document_naming.dart';
 
 @lazySingleton
 class DocumentProvider extends ChangeNotifier {
@@ -32,11 +33,7 @@ class DocumentProvider extends ChangeNotifier {
   }
 
   String generateDefaultDocumentName() {
-    final now = DateTime.now();
-    final day = now.day.toString().padLeft(2, '0');
-    final month = now.month.toString().padLeft(2, '0');
-    final year = (now.year % 100).toString().padLeft(2, '0');
-    final baseName = 'AH Scanner $day.$month.$year';
+    final baseName = defaultDocumentName();
 
     final existingNames = _documents.map((d) => d.name).toSet();
     if (!existingNames.contains(baseName)) {

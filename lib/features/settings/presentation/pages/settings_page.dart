@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_info.dart';
+import '../../../update/presentation/update_prompt.dart';
 import '../../../../core/theme/theme_notifier.dart';
 import '../../../../main.dart';
 import '../../../documents/presentation/providers/document_provider.dart';
@@ -172,11 +174,61 @@ class SettingsPage extends StatelessWidget {
             context.push('/more_settings');
           }),
           Divider(color: dividerColor, height: 1),
+          _buildListTile(context, Icons.system_update_alt, 'Check for Updates', onTap: () {
+            UpdatePrompt.manualCheck(context);
+          }),
+          Divider(color: dividerColor, height: 1),
+          _buildListTile(context, Icons.info_outline, 'About AH Scanner', onTap: () {
+            _showAboutDialog(context);
+          }),
+          Divider(color: dividerColor, height: 1),
           _buildListTile(context, Icons.thumb_up_outlined, 'Recommend AH Scanner'),
           Divider(color: dividerColor, height: 1),
           _buildListTile(context, Icons.help_outline, 'Help & Feedback'),
           Divider(color: dividerColor, height: 1),
           const _StorageStatWidget(),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Image.asset('assets/images/app_logo.png', width: 84, height: 84, fit: BoxFit.cover),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'AH Scanner',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).textTheme.bodyLarge?.color),
+            ),
+            const SizedBox(height: 4),
+            const Text('Scan • Enhance • OCR', style: TextStyle(fontSize: 13, color: Colors.teal, letterSpacing: 0.3)),
+            const SizedBox(height: 10),
+            const Text('Developed by AH Creations', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 6),
+            FutureBuilder<AppInfo>(
+              future: AppInfo.load(),
+              builder: (context, snapshot) {
+                final info = snapshot.data;
+                return Text(
+                  info == null ? 'Version …' : 'Version ${info.versionName} (${info.versionCode})',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
         ],
       ),
     );

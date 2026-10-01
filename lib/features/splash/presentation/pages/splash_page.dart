@@ -116,7 +116,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                   child: Column(
                     children: [
                       const Text(
-                        'SmartScan AI',
+                        'AH Scanner',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 26,
@@ -126,7 +126,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Smart Document & PDF Studio',
+                        'Scan • Enhance • OCR',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.6),
                           fontSize: 13,

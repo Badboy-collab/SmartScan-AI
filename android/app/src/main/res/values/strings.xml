@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher / system-UI name. Kept separate from the document filename
+         prefix ("AH Scaner DD.MM.YY H:MM"), which is intentionally different. -->
+    <string name="app_name">AH Scanner</string>
+</resources>

@@ -43,3 +43,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local build/verification artifacts (not part of the project)
+/apkpath.txt
+/build_release.log
+/build_release.err
+/installed_base.apk
+/logcat_dump.txt
+/pkg.txt
+/ui*.xml
+/.ohmyagent/

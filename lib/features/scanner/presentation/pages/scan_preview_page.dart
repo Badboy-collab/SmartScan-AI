@@ -2,6 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_settings.dart';
+import '../../../../core/utils/gallery_saver.dart';
 import '../../domain/entities/document_corners.dart';
 import '../../domain/entities/document_filter_type.dart';
 import '../../domain/interfaces/i_document_processor.dart';
@@ -143,6 +145,13 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
           widget.targetPageIndex!,
           _filteredBytes!,
         );
+        if (updatedDoc != null) {
+          await _autoExportIfEnabled(
+            updatedDoc.name,
+            widget.targetPageIndex! + 1,
+            updatedDoc.pagePaths.length,
+          );
+        }
         if (mounted && updatedDoc != null) {
           context.pushReplacement('/document_viewer', extra: updatedDoc);
         }
@@ -153,6 +162,13 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
           _filteredBytes!,
           rawImageBytes: widget.rawCapturedBytes,
         );
+        if (updatedDoc != null) {
+          await _autoExportIfEnabled(
+            updatedDoc.name,
+            updatedDoc.pagePaths.length,
+            updatedDoc.pagePaths.length,
+          );
+        }
         if (mounted && updatedDoc != null) {
           context.pushReplacement('/document_viewer', extra: updatedDoc);
         }
@@ -164,6 +180,7 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
           customName: _nameController.text.trim().isNotEmpty ? _nameController.text.trim() : null,
         );
         final newDoc = docProvider.documents.first;
+        await _autoExportIfEnabled(newDoc.name, 1, newDoc.pagePaths.length);
         if (mounted) {
           context.pushReplacement('/document_viewer', extra: newDoc);
         }
@@ -172,6 +189,42 @@ class _ScanPreviewPageState extends State<ScanPreviewPage> with SingleTickerProv
       debugPrint('Save error: $e');
     } finally {
       if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  /// Honours the "Save to this folder after every scan" option by copying the
+  /// finished page straight into Pictures/Download through MediaStore, so the
+  /// system Gallery and any file manager can see it.
+  ///
+  /// The file gets the document name as-is (`AH Scanner 29.09.26.jpg`), which is
+  /// the date-based default name every new scan starts with. Pages of a
+  /// multi-page document add their number so they cannot overwrite each other,
+  /// and the platform appends ` (1)`, ` (2)`, … when that name already exists.
+  ///
+  /// Export problems must never break saving inside the app, so everything is
+  /// swallowed and only logged.
+  Future<void> _autoExportIfEnabled(
+    String documentName,
+    int pageNumber,
+    int totalPages,
+  ) async {
+    try {
+      if (!await AppSettings.autoExportAfterScan()) return;
+      final SaveLocation location = await AppSettings.saveLocation();
+      final String cleaned = documentName
+          .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+          .trim();
+      final String base = cleaned.isEmpty ? 'Scan' : cleaned;
+      final SavedImage saved = await GallerySaver.saveJpeg(
+        bytes: _filteredBytes!,
+        fileName: totalPages > 1
+            ? '${base}_page_$pageNumber.jpg'
+            : '$base.jpg',
+        toDownloads: location == SaveLocation.download,
+      );
+      debugPrint('Auto-exported scan to ${saved.path}');
+    } catch (e) {
+      debugPrint('Auto-export failed: $e');
     }
   }
 

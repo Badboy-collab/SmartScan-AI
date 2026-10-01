@@ -1,12 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../features/update/presentation/update_prompt.dart';
 
-
-class MainLayout extends StatelessWidget {
+class MainLayout extends StatefulWidget {
   final Widget child;
 
   const MainLayout({super.key, required this.child});
+
+  @override
+  State<MainLayout> createState() => _MainLayoutState();
+}
+
+class _MainLayoutState extends State<MainLayout> {
+  /// Guards against a second check when the shell is rebuilt.
+  static bool _updateCheckStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_updateCheckStarted) {
+      _updateCheckStarted = true;
+      // Runs after the first frame so the shell is on screen and the check can
+      // never delay startup; it stays silent unless a newer release exists.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) UpdatePrompt.autoCheck(context);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +43,7 @@ class MainLayout extends StatelessWidget {
     }
 
     return Scaffold(
-      body: child,
+      body: widget.child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: currentIndex,
         onTap: (index) {

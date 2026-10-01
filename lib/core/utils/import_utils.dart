@@ -11,6 +11,7 @@ import '../../features/documents/presentation/providers/document_provider.dart';
 import '../../features/documents/domain/entities/scanned_document.dart';
 import '../../features/scanner/domain/entities/document_corners.dart';
 import '../../core/di/injection.dart';
+import 'document_naming.dart';
 
 class ImportUtils {
   static Future<void> importImages(BuildContext context) async {
@@ -68,7 +69,7 @@ class ImportUtils {
         
         final doc = ScannedDocument(
           id: docId,
-          name: 'SmartScan ${now.month}-${now.day}-${now.year} ${now.hour}.${now.minute}',
+          name: defaultDocumentName(now),
           createdAt: now,
           updatedAt: now,
           pagePaths: permanentPagePaths,

@@ -2,11 +2,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/gallery_saver.dart';
 import '../../../conversion/presentation/pages/document_conversion_page.dart';
 import '../../data/services/pdf_export_service.dart';
 import '../../domain/entities/scanned_document.dart';
@@ -259,79 +258,67 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
     }
   }
 
-  Future<void> _saveToGallery() async {
+  /// Writes every page as a JPEG into a location the Gallery / file manager can
+  /// see (`Pictures/AH Scanner` or `Download/AH Scanner`).
+  ///
+  /// A single-page document keeps the plain document name (`AH Scanner
+  /// 29.09.26.jpg`); a multi-page one appends the page number so the pages cannot
+  /// overwrite each other. No timestamp is used, so re-saving the same document
+  /// keeps requesting the same name and the platform de-duplicates it by itself
+  /// (` (1)`, ` (2)`, …) instead of raising a name conflict.
+  Future<void> _saveImages({required bool toDownloads}) async {
     try {
-      Directory baseDir;
-      if (Platform.isAndroid) {
-        final extDir = await getExternalStorageDirectory();
-        baseDir = extDir ?? await getApplicationDocumentsDirectory();
-      } else {
-        baseDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
-      }
-      final picturesDir = Directory(p.join(baseDir.path, 'SmartScan AI'));
-      if (!await picturesDir.exists()) await picturesDir.create(recursive: true);
-
       int count = 0;
+      SavedImage? lastSaved;
+      final String baseName = _sanitizeFileName(_doc.name);
+      final bool multiPage = _doc.pagePaths.length > 1;
+
       for (int i = 0; i < _doc.pagePaths.length; i++) {
         final src = File(_doc.pagePaths[i]);
-        if (await src.exists()) {
-          final now = DateTime.now();
-          final timeStamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
-          final target = File(p.join(picturesDir.path, '${_sanitizeFileName(_doc.name)}_page_${i + 1}_$timeStamp.jpg'));
-          await src.copy(target.path);
-          count++;
-        }
+        if (!await src.exists()) continue;
+
+        lastSaved = await GallerySaver.saveJpeg(
+          bytes: await src.readAsBytes(),
+          fileName:
+              multiPage ? '${baseName}_page_${i + 1}.jpg' : '$baseName.jpg',
+          toDownloads: toDownloads,
+        );
+        count++;
       }
 
+      if (!mounted) return;
+
+      if (count == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No page images found to save')),
+        );
+        return;
+      }
+
+      final String location =
+          GallerySaver.locationLabel(toDownloads: toDownloads);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: toDownloads ? Colors.teal[800] : Colors.green[800],
+          content: Text(
+            count == 1 && lastSaved != null
+                ? '✓ Saved to $location as ${lastSaved.fileName}'
+                : '✓ Saved $count pages of "$baseName" to $location',
+          ),
+        ),
+      );
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.green[800],
-            content: Text('✓ Saved $count picture(s) to ${picturesDir.path}'),
-          ),
+          SnackBar(content: Text('Could not save: $e')),
         );
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save to gallery: $e')));
     }
   }
 
-  Future<void> _saveToLocal() async {
-    try {
-      Directory baseDir;
-      if (Platform.isAndroid) {
-        final extDir = await getExternalStorageDirectory();
-        baseDir = extDir ?? await getApplicationDocumentsDirectory();
-      } else {
-        baseDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
-      }
-      final docDir = Directory(p.join(baseDir.path, 'SmartScan AI', 'Documents'));
-      if (!await docDir.exists()) await docDir.create(recursive: true);
+  Future<void> _saveToGallery() => _saveImages(toDownloads: false);
 
-      int count = 0;
-      for (int i = 0; i < _doc.pagePaths.length; i++) {
-        final src = File(_doc.pagePaths[i]);
-        if (await src.exists()) {
-          final now = DateTime.now();
-          final timeStamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
-          final target = File(p.join(docDir.path, '${_sanitizeFileName(_doc.name)}_page_${i + 1}_$timeStamp.jpg'));
-          await src.copy(target.path);
-          count++;
-        }
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.teal[800],
-            content: Text('✓ Saved $count file(s) to ${docDir.path}'),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save to local: $e')));
-    }
-  }
+  Future<void> _saveToLocal() => _saveImages(toDownloads: true);
 
   String _sanitizeFileName(String name) {
     return name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
@@ -360,7 +347,7 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
                 ListTile(
                   leading: const Icon(Icons.folder_outlined, color: Color(0xFF00ACC1), size: 26),
                   title: const Text('Save to Local', style: TextStyle(color: Colors.white, fontSize: 15)),
-                  subtitle: const Text('Save to internal storage (Download/SmartScan AI)', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  subtitle: const Text('Download/AH Scanner (visible in Files)', style: TextStyle(color: Colors.white54, fontSize: 12)),
                   onTap: () {
                     Navigator.pop(ctx);
                     _saveToLocal();
@@ -369,7 +356,7 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
                 ListTile(
                   leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF00ACC1), size: 26),
                   title: const Text('Save to Gallery', style: TextStyle(color: Colors.white, fontSize: 15)),
-                  subtitle: const Text('Save to Android Gallery/Photos', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  subtitle: const Text('Pictures/AH Scanner (visible in Photos)', style: TextStyle(color: Colors.white54, fontSize: 12)),
                   onTap: () {
                     Navigator.pop(ctx);
                     _saveToGallery();
@@ -450,7 +437,7 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
                 _buildInfoRow('Pages', '${_doc.pagePaths.length} Pages'),
                 _buildInfoRow('Size', _jpgSize),
                 _buildInfoRow('Created', formattedDate),
-                _buildInfoRow('Location', 'SmartScan AI / Documents'),
+                _buildInfoRow('Location', 'AH Scanner / Documents'),
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerRight,
@@ -881,7 +868,7 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('SmartScan AI', style: TextStyle(fontSize: 11, color: Colors.white54)),
+            const Text('AH Scanner', style: TextStyle(fontSize: 11, color: Colors.white54)),
             Text(_doc.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
           ],
         ),

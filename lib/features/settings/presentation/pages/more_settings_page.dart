@@ -1,6 +1,9 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_settings.dart';
+import '../../../../core/utils/gallery_saver.dart';
 import '../../../documents/presentation/providers/document_provider.dart';
 
 class MoreSettingsPage extends StatelessWidget {
@@ -20,6 +23,18 @@ class MoreSettingsPage extends StatelessWidget {
       ),
       body: ListView(
         children: [
+          _buildItem(
+            context,
+            'Camera Settings',
+            onTap: () => _showSheet(context, const _CameraSettingsSheet()),
+          ),
+          Divider(height: 1, color: dividerColor),
+          _buildItem(
+            context,
+            'Document Save Settings',
+            onTap: () => _showSheet(context, const _DocumentSaveSettingsSheet()),
+          ),
+          Divider(height: 1, color: dividerColor),
           _buildItem(
             context,
             'Share & Export',
@@ -57,6 +72,17 @@ class MoreSettingsPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showSheet(BuildContext context, Widget child) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => child,
     );
   }
 
@@ -295,6 +321,240 @@ class MoreSettingsPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Camera choices the scanner reads back on startup: the flash mode the
+/// viewfinder opens with and whether captures use the full sensor.
+class _CameraSettingsSheet extends StatefulWidget {
+  const _CameraSettingsSheet();
+
+  @override
+  State<_CameraSettingsSheet> createState() => _CameraSettingsSheetState();
+}
+
+class _CameraSettingsSheetState extends State<_CameraSettingsSheet> {
+  FlashMode? _flashMode;
+  bool _hdCapture = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final FlashMode flashMode = await AppSettings.flashMode();
+    final bool hdCapture = await AppSettings.hdCapture();
+    if (!mounted) return;
+    setState(() {
+      _flashMode = flashMode;
+      _hdCapture = hdCapture;
+    });
+  }
+
+  static String _flashLabel(FlashMode mode) {
+    switch (mode) {
+      case FlashMode.off:
+        return 'Off';
+      case FlashMode.auto:
+        return 'Auto';
+      case FlashMode.always:
+        return 'On (fires for every capture)';
+      case FlashMode.torch:
+        return 'Torch (LED stays lit while scanning)';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final FlashMode? flashMode = _flashMode;
+
+    return Padding(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Camera Settings',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: theme.textTheme.bodyLarge?.color,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (flashMode == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else ...[
+            Text(
+              'Flash when the camera opens',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: theme.textTheme.bodyMedium?.color,
+              ),
+            ),
+            for (final FlashMode mode in FlashMode.values)
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  mode == FlashMode.torch
+                      ? Icons.flashlight_on
+                      : Icons.flash_on,
+                  color: mode == flashMode
+                      ? Colors.teal
+                      : theme.iconTheme.color,
+                ),
+                title: Text(_flashLabel(mode)),
+                trailing: mode == flashMode
+                    ? const Icon(Icons.check, color: Colors.teal)
+                    : null,
+                onTap: () async {
+                  setState(() => _flashMode = mode);
+                  await AppSettings.setFlashMode(mode);
+                },
+              ),
+            const Divider(),
+            SwitchListTile(
+              title: const Text('Full sensor capture'),
+              subtitle: const Text(
+                'Off captures at 720p: faster, but smaller and softer files',
+              ),
+              value: _hdCapture,
+              onChanged: (bool value) async {
+                setState(() => _hdCapture = value);
+                await AppSettings.setHdCapture(value);
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Default folder for exported scans plus the automatic export toggle.
+class _DocumentSaveSettingsSheet extends StatefulWidget {
+  const _DocumentSaveSettingsSheet();
+
+  @override
+  State<_DocumentSaveSettingsSheet> createState() =>
+      _DocumentSaveSettingsSheetState();
+}
+
+class _DocumentSaveSettingsSheetState
+    extends State<_DocumentSaveSettingsSheet> {
+  SaveLocation? _location;
+  bool _autoExport = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final SaveLocation location = await AppSettings.saveLocation();
+    final bool autoExport = await AppSettings.autoExportAfterScan();
+    if (!mounted) return;
+    setState(() {
+      _location = location;
+      _autoExport = autoExport;
+    });
+  }
+
+  static String _label(SaveLocation location) {
+    switch (location) {
+      case SaveLocation.gallery:
+        return 'Gallery (Pictures)';
+      case SaveLocation.download:
+        return 'Downloads (Files)';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final SaveLocation? location = _location;
+
+    return Padding(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Document Save Settings',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: theme.textTheme.bodyLarge?.color,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (location == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else ...[
+            Text(
+              'Save images to',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: theme.textTheme.bodyMedium?.color,
+              ),
+            ),
+            for (final SaveLocation option in SaveLocation.values)
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  option == SaveLocation.gallery
+                      ? Icons.photo_library
+                      : Icons.download,
+                  color: option == location
+                      ? Colors.teal
+                      : theme.iconTheme.color,
+                ),
+                title: Text(_label(option)),
+                subtitle: Text(
+                  GallerySaver.locationLabel(
+                    toDownloads: option == SaveLocation.download,
+                  ),
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: option == location
+                    ? const Icon(Icons.check, color: Colors.teal)
+                    : null,
+                onTap: () async {
+                  setState(() => _location = option);
+                  await AppSettings.setSaveLocation(option);
+                },
+              ),
+            const Divider(),
+            SwitchListTile(
+              title: const Text('Save to this folder after every scan'),
+              subtitle: const Text(
+                'Each finished page is copied out of the app as soon as it is '
+                'saved, so your Gallery and file manager can see it',
+              ),
+              value: _autoExport,
+              onChanged: (bool value) async {
+                setState(() => _autoExport = value);
+                await AppSettings.setAutoExportAfterScan(value);
+              },
+            ),
+          ],
+        ],
       ),
     );
   }

@@ -1,8 +1,8 @@
 name: ah_scanner
-description: "AH Scanner - SmartScan AI Document Scanner"
+description: "AH Scanner - scan, enhance, OCR and convert documents. By AH Creations."
 publish_to: 'none'
 
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.12.2
@@ -46,9 +46,11 @@ flutter:
 
   assets:
     - assets/images/
-    - assets/icon/
 
 flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/images/app_logo.png"
+  # Adaptive icon (Android 8+): navy brand plate + logo inside the 66dp safe zone.
+  adaptive_icon_background: "#002040"
+  adaptive_icon_foreground: "assets/icon/ah_icon_foreground.png"
