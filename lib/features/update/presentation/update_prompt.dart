@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/utils/app_info.dart';
@@ -29,11 +31,14 @@ class UpdatePrompt {
   static Future<void> manualCheck(BuildContext context) async {
     final current = (await AppInfo.load()).versionName;
 
-    await showDialog<void>(
+    // showDialog() completes only when its route is popped, so it must NOT be
+    // awaited here - awaiting it left "Checking for updates..." on screen
+    // forever. It is dismissed explicitly below once the check returns.
+    unawaited(showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const _BusyDialog(),
-    );
+    ));
 
     final result = await UpdateChecker.check();
     if (!context.mounted) return;
