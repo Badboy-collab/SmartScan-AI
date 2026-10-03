@@ -23,6 +23,8 @@ import '../../features/tools/presentation/pages/watermark_page.dart';
 import '../../features/tools/presentation/pages/long_image_page.dart';
 import '../../features/tools/presentation/pages/extract_pdf_pages_page.dart';
 import '../../features/tools/presentation/pages/id_photo_maker_page.dart';
+import '../../features/tools/presentation/pages/protect_pdf_page.dart';
+import '../../features/tools/presentation/pages/reorder_pdf_pages_page.dart';
 import '../../features/documents/presentation/pages/single_page_viewer_page.dart';
 import '../../features/conversion/presentation/pages/document_conversion_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
@@ -130,7 +132,9 @@ class AppRouter {
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/ocr',
-        builder: (context, state) => const OcrPage(),
+        builder: (context, state) => OcrPage(
+          initialFormat: state.uri.queryParameters['mode'] ?? 'text',
+        ),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
@@ -181,6 +185,16 @@ class AppRouter {
         parentNavigatorKey: _rootNavigatorKey,
         path: '/pdf_to_images',
         builder: (context, state) => const ExtractPdfPagesPage(exportAsImagesOnly: true),
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/protect_pdf',
+        builder: (context, state) => const ProtectPdfPage(),
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/reorder_pdf_pages',
+        builder: (context, state) => const ReorderPdfPagesPage(),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,

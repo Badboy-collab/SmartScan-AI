@@ -342,15 +342,17 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
-  // Scan Modes matching sc.jpg
+  // Scan Modes matching sc.jpg.
+  //
+  // Every entry must do something real when tapped: 'Batch' and 'Book' were
+  // removed because nothing was ever implemented behind them (the strip used
+  // to be partly decorative). 'Single' is the normal one-shot capture.
   final List<String> _scanModes = [
     'To Text',
     'To Word',
     'To Excel',
     'Single',
-    'Batch',
     'ID Card',
-    'Book',
     'PPT',
   ];
   int _selectedModeIndex = 3; // Default 'Single'
@@ -648,12 +650,25 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   }
 
   void _handleModeChange(String mode) {
-    if (mode == 'ID Card') {
-      context.push('/id_card_scanner');
-    } else if (mode == 'To Text') {
-      context.push('/ocr');
-    } else if (mode == 'To Excel') {
-      context.push('/ocr');
+    // The conversion modes all end up on the OCR page, which now pre-selects
+    // the tab and offers Excel / Word / PowerPoint export. 'Single' describes
+    // the default one-shot capture, so it stays on the camera.
+    switch (mode) {
+      case 'To Text':
+        context.push('/ocr?mode=text');
+        break;
+      case 'To Word':
+        context.push('/ocr?mode=word');
+        break;
+      case 'To Excel':
+        context.push('/ocr?mode=excel');
+        break;
+      case 'PPT':
+        context.push('/ocr?mode=ppt');
+        break;
+      case 'ID Card':
+        context.push('/id_card_scanner');
+        break;
     }
   }
 

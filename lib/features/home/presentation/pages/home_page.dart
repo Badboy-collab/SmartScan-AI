@@ -111,10 +111,10 @@ class HomePage extends StatelessWidget {
                   context.push('/id_card_scanner');
                   break;
                 case 5: // To Text
-                  context.push('/ocr');
+                  context.push('/ocr?mode=text');
                   break;
                 case 6: // To Word
-                  context.push('/ocr');
+                  context.push('/ocr?mode=word');
                   break;
                 case 7: // All
                   context.go('/tools');

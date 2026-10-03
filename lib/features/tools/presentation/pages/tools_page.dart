@@ -9,10 +9,6 @@ class ToolsPage extends StatelessWidget {
     await ImportUtils.importImages(context);
   }
 
-  void _unimplemented(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coming soon in next phase!')));
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -21,9 +17,9 @@ class ToolsPage extends StatelessWidget {
         padding: const EdgeInsets.all(16.0),
         children: [
           _buildCategory('CONVERT', [
-            _ToolItem(Icons.description, 'To Word', Colors.blue, onTap: () => context.push('/ocr')),
-            _ToolItem(Icons.table_chart, 'To Excel', Colors.green, onTap: () => context.push('/ocr')),
-            _ToolItem(Icons.slideshow, 'To PPT', Colors.orange, onTap: () => _unimplemented(context)),
+            _ToolItem(Icons.description, 'To Word', Colors.blue, onTap: () => context.push('/ocr?mode=word')),
+            _ToolItem(Icons.table_chart, 'To Excel', Colors.green, onTap: () => context.push('/ocr?mode=excel')),
+            _ToolItem(Icons.slideshow, 'To PPT', Colors.orange, onTap: () => context.push('/ocr?mode=ppt')),
             _ToolItem(Icons.image, 'PDF to Images', Colors.purple, onTap: () => context.push('/pdf_to_images')),
             _ToolItem(Icons.panorama, 'PDF to Long Image', Colors.redAccent, onTap: () => context.push('/pdf_to_long_image')),
           ]),
@@ -34,18 +30,16 @@ class ToolsPage extends StatelessWidget {
             _ToolItem(Icons.branding_watermark, 'Add Watermark', Colors.indigo, onTap: () => context.push('/watermark')),
             _ToolItem(Icons.merge_type, 'Merge PDFs', Colors.blueAccent, onTap: () => context.push('/pdf_merge')),
             _ToolItem(Icons.picture_as_pdf, 'Extract PDF Pages', Colors.red, onTap: () => context.push('/extract_pdf_pages')),
-            _ToolItem(Icons.reorder, 'Reorder PDF Pages', Colors.blueGrey, onTap: () => _unimplemented(context)),
-            _ToolItem(Icons.security, 'Protect PDF', Colors.green, onTap: () => _unimplemented(context)),
+            _ToolItem(Icons.reorder, 'Reorder PDF Pages', Colors.blueGrey, onTap: () => context.push('/reorder_pdf_pages')),
+            _ToolItem(Icons.security, 'Protect PDF', Colors.green, onTap: () => context.push('/protect_pdf')),
           ]),
           const SizedBox(height: 24),
           _buildCategory('SCAN', [
             _ToolItem(Icons.badge, 'ID Card', Colors.lightBlue, onTap: () => context.push('/id_card_scanner')),
-            _ToolItem(Icons.text_fields, 'Scan to Text', Colors.teal, onTap: () => context.push('/ocr')),
+            _ToolItem(Icons.text_fields, 'Scan to Text', Colors.teal, onTap: () => context.push('/ocr?mode=text')),
             _ToolItem(Icons.camera_front, 'ID Photo Maker', Colors.orangeAccent, onTap: () => context.push('/id_photo_maker')),
-            _ToolItem(Icons.document_scanner, 'Scan to Excel', Colors.green, onTap: () => context.push('/ocr')),
-            _ToolItem(Icons.quiz, 'Question Set', Colors.purple, onTap: () => _unimplemented(context)),
-            _ToolItem(Icons.book, 'Book', Colors.brown, onTap: () => _unimplemented(context)),
-            _ToolItem(Icons.co_present, 'PPT', Colors.deepOrange, onTap: () => _unimplemented(context)),
+            _ToolItem(Icons.document_scanner, 'Scan to Excel', Colors.green, onTap: () => context.push('/ocr?mode=excel')),
+            _ToolItem(Icons.co_present, 'PPT', Colors.deepOrange, onTap: () => context.push('/ocr?mode=ppt')),
             _ToolItem(Icons.image_search, 'Import Images', Colors.indigoAccent, onTap: () => _importImages(context)),
           ]),
           const SizedBox(height: 24),

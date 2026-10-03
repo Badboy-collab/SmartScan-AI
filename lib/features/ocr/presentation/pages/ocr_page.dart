@@ -7,12 +7,24 @@ import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../conversion/data/services/excel_export_service.dart';
+import '../../../conversion/data/services/powerpoint_export_service.dart';
+import '../../../conversion/data/services/word_export_service.dart';
 import '../../../conversion/domain/models/document_structure.dart';
 import '../../data/datasources/cloud_vision_ocr_service.dart';
 
 class OcrPage extends StatefulWidget {
   final bool startInExcelMode;
-  const OcrPage({super.key, this.startInExcelMode = false});
+
+  /// Which converter the caller came for: 'text' (default), 'word', 'excel' or
+  /// 'ppt'. Set through /ocr?mode=... by the scanner mode strip and the Tools
+  /// grid, so tapping "To Word" opens this page ready to export a .docx.
+  final String initialFormat;
+
+  const OcrPage({
+    super.key,
+    this.startInExcelMode = false,
+    this.initialFormat = 'text',
+  });
 
   @override
   State<OcrPage> createState() => _OcrPageState();
@@ -31,7 +43,8 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this, initialIndex: widget.startInExcelMode ? 1 : 0);
+    final startOnTableTab = widget.startInExcelMode || widget.initialFormat == 'excel';
+    _tabController = TabController(length: 2, vsync: this, initialIndex: startOnTableTab ? 1 : 0);
     _textController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pickImage();
@@ -239,67 +252,142 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
     return structuredGrid.isNotEmpty ? structuredGrid : rawRows.map((r) => r.map((c) => c.text).toList()).toList();
   }
 
-  Future<void> _exportExcel() async {
+  /// Shapes the OCR result the way the Office converters expect it.
+  AnalyzedDocument _buildAnalyzedDocument() {
+    final List<DocTableRow> docRows = [];
+    final int numCols = _tableRows.isNotEmpty ? _tableRows.first.length : 1;
+
+    for (int r = 0; r < _tableRows.length; r++) {
+      final row = _tableRows[r];
+      final List<DocTableCell> cells = [];
+      for (int c = 0; c < row.length; c++) {
+        final cellText = row[c];
+        final num? numVal = num.tryParse(cellText.replaceAll(RegExp(r'[^0-9\.-]'), ''));
+        cells.add(DocTableCell(
+          text: cellText,
+          boundingBox: Rect.zero,
+          isNumeric: numVal != null,
+          numericValue: numVal,
+        ));
+      }
+      docRows.add(DocTableRow(cells: cells, isHeader: r == 0));
+    }
+
+    final page = AnalyzedPage(
+      pageNumber: 1,
+      pageSize: const Size(1000, 1400),
+      title: 'Scanned Table',
+      elements: [],
+      tables: [
+        DocTable(
+          rows: docRows,
+          columnCount: numCols,
+          boundingBox: Rect.zero,
+        ),
+      ],
+      paragraphs: _extractedText.split('\n').where((l) => l.trim().isNotEmpty).map((l) => DocParagraph(text: l, boundingBox: Rect.zero)).toList(),
+    );
+
+    return AnalyzedDocument(pages: [page]);
+  }
+
+  static const String _xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  static const String _docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  static const String _pptxMime = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+  /// Runs one converter and then offers to open the finished file.
+  Future<void> _runExport({
+    required String label,
+    required String mime,
+    required Future<File> Function(AnalyzedDocument document, String baseName) convert,
+  }) async {
     if (_tableRows.isEmpty && _extractedText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No data to export')));
       return;
     }
 
     try {
-      final List<DocTableRow> docRows = [];
-      final int numCols = _tableRows.isNotEmpty ? _tableRows.first.length : 1;
-
-      for (int r = 0; r < _tableRows.length; r++) {
-        final row = _tableRows[r];
-        final List<DocTableCell> cells = [];
-        for (int c = 0; c < row.length; c++) {
-          final cellText = row[c];
-          final num? numVal = num.tryParse(cellText.replaceAll(RegExp(r'[^0-9\.-]'), ''));
-          cells.add(DocTableCell(
-            text: cellText,
-            boundingBox: Rect.zero,
-            isNumeric: numVal != null,
-            numericValue: numVal,
-          ));
-        }
-        docRows.add(DocTableRow(cells: cells, isHeader: r == 0));
-      }
-
-      final page = AnalyzedPage(
-        pageNumber: 1,
-        pageSize: const Size(1000, 1400),
-        title: 'Scanned Table',
-        elements: [],
-        tables: [
-          DocTable(
-            rows: docRows,
-            columnCount: numCols,
-            boundingBox: Rect.zero,
-          ),
-        ],
-        paragraphs: _extractedText.split('\n').where((l) => l.trim().isNotEmpty).map((l) => DocParagraph(text: l, boundingBox: Rect.zero)).toList(),
-      );
-
-      final doc = AnalyzedDocument(pages: [page]);
       final baseName = 'Scanned_Table_${DateTime.now().millisecondsSinceEpoch}';
-      final file = await ExcelExportService.exportToXlsx(document: doc, baseFileName: baseName);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Exported to Excel (.xlsx) successfully!'),
-            action: SnackBarAction(
-              label: 'OPEN',
-              onPressed: () => OpenFilex.open(file.path, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
-            ),
+      final file = await convert(_buildAnalyzedDocument(), baseName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Exported to $label successfully!'),
+          action: SnackBarAction(
+            label: 'OPEN',
+            onPressed: () => OpenFilex.open(file.path, type: mime),
           ),
-        );
-        // Direct open in Excel
-        await OpenFilex.open(file.path, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      }
+        ),
+      );
+      // Direct open in the matching Office viewer.
+      await OpenFilex.open(file.path, type: mime);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export error: $e')));
     }
+  }
+
+  Future<void> _exportExcel() => _runExport(
+        label: 'Excel (.xlsx)',
+        mime: _xlsxMime,
+        convert: (doc, baseName) => ExcelExportService.exportToXlsx(document: doc, baseFileName: baseName),
+      );
+
+  Future<void> _exportWord() => _runExport(
+        label: 'Word (.docx)',
+        mime: _docxMime,
+        convert: (doc, baseName) => WordExportService.exportToDocx(document: doc, baseFileName: baseName),
+      );
+
+  Future<void> _exportPpt() => _runExport(
+        label: 'PowerPoint (.pptx)',
+        mime: _pptxMime,
+        convert: (doc, baseName) => PowerPointExportService.exportToPptx(document: doc, baseFileName: baseName),
+      );
+
+  /// The single export entry point (app bar and table header both use it).
+  Widget _buildExportMenu() {
+    return PopupMenuButton<String>(
+      tooltip: 'Export as Excel, Word or PowerPoint',
+      onSelected: (value) async {
+        if (value == 'excel') {
+          await _exportExcel();
+        } else if (value == 'word') {
+          await _exportWord();
+        } else if (value == 'ppt') {
+          await _exportPpt();
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'excel',
+          child: ListTile(dense: true, leading: Icon(Icons.table_chart_outlined), title: Text('Excel (.xlsx)')),
+        ),
+        PopupMenuItem(
+          value: 'word',
+          child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('Word (.docx)')),
+        ),
+        PopupMenuItem(
+          value: 'ppt',
+          child: ListTile(dense: true, leading: Icon(Icons.slideshow_outlined), title: Text('PowerPoint (.pptx)')),
+        ),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF107C41),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.file_download, size: 16, color: Colors.white),
+            SizedBox(width: 6),
+            Text('Export', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+            Icon(Icons.arrow_drop_down, color: Colors.white),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -310,7 +398,7 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Scan to Text & Excel'),
+        title: const Text('Scan to Text & Office'),
         elevation: 0,
         actions: [
           IconButton(
@@ -328,11 +416,7 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
               }
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.table_chart_outlined),
-            tooltip: 'Export to Excel (.xlsx)',
-            onPressed: _exportExcel,
-          ),
+          _buildExportMenu(),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -425,17 +509,7 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
                                             ),
                                           ),
                                           const SizedBox(width: 8),
-                                          ElevatedButton.icon(
-                                            onPressed: _exportExcel,
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(0xFF107C41),
-                                              foregroundColor: Colors.white,
-                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                            ),
-                                            icon: const Icon(Icons.file_download, size: 16),
-                                            label: const Text('Export Excel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                          ),
+                                          _buildExportMenu(),
                                         ],
                                       ),
                                     ),
