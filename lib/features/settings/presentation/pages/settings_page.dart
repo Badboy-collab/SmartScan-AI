@@ -8,6 +8,7 @@ import '../../../update/presentation/update_prompt.dart';
 import '../../../../core/theme/theme_notifier.dart';
 import '../../../../main.dart';
 import '../../../documents/presentation/providers/document_provider.dart';
+import '../../../ocr/presentation/widgets/vision_key_dialog.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -302,49 +303,14 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  void _showVisionApiKeyDialog(BuildContext context) async {
+  Future<void> _showVisionApiKeyDialog(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    final controller = TextEditingController(
-      text: prefs.getString('google_vision_api_key') ?? '',
-    );
+    if (!context.mounted) return;
 
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(context).cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Google Vision API Key'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'Paste your API key here',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Needed for "বাংলা (Cloud)" OCR.\n'
-              'Free key: console.cloud.google.com → enable Cloud Vision API → Credentials → Create API key.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
-            onPressed: () {
-              prefs.setString('google_vision_api_key', controller.text.trim());
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    // Same dialog the OCR page uses, so the key can be tested before saving.
+    await showVisionKeyDialog(
+      context,
+      currentKey: prefs.getString('google_vision_api_key') ?? '',
     );
   }
 

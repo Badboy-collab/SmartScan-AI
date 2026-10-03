@@ -12,6 +12,53 @@ class CloudVisionOcrService {
   static const String endpoint =
       'https://vision.googleapis.com/v1/images:annotate';
 
+  /// Sends a throwaway 1x1 image just to check whether Google accepts the key.
+  ///
+  /// Returns normally when the key is usable and throws a readable exception
+  /// otherwise (invalid key, Cloud Vision API not enabled, billing missing,
+  /// quota exhausted) - so the user never has to guess why OCR fails.
+  Future<void> testApiKey(String apiKey) async {
+    final key = apiKey.trim();
+    if (key.isEmpty) {
+      throw Exception('Paste an API key first.');
+    }
+
+    final uri = Uri.parse('$endpoint?key=$key');
+    final response = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'requests': [
+              {
+                'image': {'content': _probeImageBase64},
+                'features': [
+                  {'type': 'TEXT_DETECTION', 'maxResults': 1},
+                ],
+              },
+            ],
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+
+    if (response.statusCode == 200) return;
+
+    // Google states the real reason (bad key / API disabled / billing) here.
+    String detail = 'Vision API error (${response.statusCode})';
+    try {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final error = data['error'] as Map<String, dynamic>?;
+      detail = (error?['message'] as String?) ?? detail;
+    } catch (_) {
+      // Keep the generic message when the body is not the expected JSON.
+    }
+    throw Exception(detail);
+  }
+
+  /// 1x1 white PNG - auth probe only, no real OCR is expected from it.
+  static const String _probeImageBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+
   /// Recognizes text in [imageBytes].
   ///
   /// [languageHints] tells Vision which languages to expect, e.g.

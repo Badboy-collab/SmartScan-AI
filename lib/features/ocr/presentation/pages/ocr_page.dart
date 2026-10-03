@@ -6,11 +6,34 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/utils/app_launcher.dart';
 import '../../../conversion/data/services/excel_export_service.dart';
 import '../../../conversion/data/services/powerpoint_export_service.dart';
 import '../../../conversion/data/services/word_export_service.dart';
 import '../../../conversion/domain/models/document_structure.dart';
 import '../../data/datasources/cloud_vision_ocr_service.dart';
+import '../widgets/vision_key_dialog.dart';
+
+/// One entry in the OCR language strip.
+///
+/// Bengali is not in ML Kit's on-device models, so it is backed by Google Cloud
+/// Vision (better quality, needs a free API key and a connection); every other
+/// entry runs fully offline on-device.
+class _OcrLanguage {
+  final String key;
+  final String label;
+
+  /// ML Kit script for the offline engines; null for cloud-backed languages.
+  final TextRecognitionScript? script;
+  final bool cloud;
+
+  const _OcrLanguage({
+    required this.key,
+    required this.label,
+    this.script,
+    this.cloud = false,
+  });
+}
 
 class OcrPage extends StatefulWidget {
   final bool startInExcelMode;
@@ -37,8 +60,19 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
   File? _imageFile;
   late TabController _tabController;
   late TextEditingController _textController;
-  TextRecognitionScript _script = TextRecognitionScript.latin;
-  bool _useCloud = false;
+  /// Every choice the user can pick, Bengali first (see [_loadVisionKey] -
+  /// it only becomes the default once a Vision key exists).
+  static const List<_OcrLanguage> _languages = [
+    _OcrLanguage(key: 'bn', label: 'বাংলা (online)', cloud: true),
+    _OcrLanguage(key: 'en', label: 'English', script: TextRecognitionScript.latin),
+    _OcrLanguage(key: 'hi', label: 'Hindi', script: TextRecognitionScript.devanagiri),
+    _OcrLanguage(key: 'zh', label: '中文', script: TextRecognitionScript.chinese),
+    _OcrLanguage(key: 'ja', label: '日本語', script: TextRecognitionScript.japanese),
+    _OcrLanguage(key: 'ko', label: '한국어', script: TextRecognitionScript.korean),
+  ];
+
+  _OcrLanguage _language = _languages[1]; // English on-device until a key is found
+  String _visionKey = '';
 
   @override
   void initState() {
@@ -46,6 +80,7 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
     final startOnTableTab = widget.startInExcelMode || widget.initialFormat == 'excel';
     _tabController = TabController(length: 2, vsync: this, initialIndex: startOnTableTab ? 1 : 0);
     _textController = TextEditingController();
+    _loadVisionKey();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pickImage();
     });
@@ -78,26 +113,29 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
     if (_imageFile == null) return;
 
     try {
-      if (_useCloud) {
-        // Cloud Vision path — supports Bangla and many other scripts.
-        final prefs = await SharedPreferences.getInstance();
-        final apiKey = prefs.getString('google_vision_api_key') ?? '';
+      if (_language.cloud) {
+        // Cloud Vision path - the only engine that understands বাংলা.
+        if (_visionKey.isEmpty) {
+          await _promptForVisionKey();
+          return;
+        }
+
         final bytes = await _imageFile!.readAsBytes();
         final text = await CloudVisionOcrService().recognizeText(
           bytes,
-          apiKey: apiKey,
+          apiKey: _visionKey,
           languageHints: const ['bn', 'en'],
         );
         setState(() {
           _extractedText = text;
           _textController.text = text;
-          _tableRows = [];
+          _tableRows = _rowsFromText(text);
         });
         return;
       }
 
       final inputImage = InputImage.fromFile(_imageFile!);
-      final textRecognizer = TextRecognizer(script: _script);
+      final textRecognizer = TextRecognizer(script: _language.script ?? TextRecognitionScript.latin);
       try {
         final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
 
@@ -122,6 +160,79 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
       });
     } finally {
       if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  /// Bengali needs Cloud Vision, so it only becomes the default once the user
+  /// has a key - otherwise the app still works offline out of the box.
+  Future<void> _loadVisionKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = (prefs.getString('google_vision_api_key') ?? '').trim();
+    if (!mounted) return;
+    setState(() {
+      _visionKey = key;
+      if (key.isNotEmpty) _language = _languages.first;
+    });
+  }
+
+  /// Cloud Vision returns plain text (no line geometry), so a page becomes one
+  /// row per line. Without this the Excel export would produce an empty sheet.
+  List<List<String>> _rowsFromText(String text) {
+    return text
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .map((line) => <String>[line])
+        .toList();
+  }
+
+  /// Explains why বাংলা needs a key and offers to add one right here.
+  Future<void> _promptForVisionKey() async {
+    if (mounted) setState(() => _isProcessing = false);
+
+    final wantsToAdd = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('বাংলা OCR needs a Vision key'),
+        content: const Text(
+          'The offline engine has no Bengali model, so বাংলা runs on Google Cloud Vision - which is much more accurate for Bangla text.\n\n'
+          'It needs a free API key from your own Google account (Cloud Vision includes 1000 pages a month free). '
+          'Every other language keeps working offline.',
+          style: TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              openExternalUrl(visionApiConsoleUrl);
+              Navigator.pop(ctx, false);
+            },
+            child: const Text('Get a free key'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Add key'),
+          ),
+        ],
+      ),
+    );
+
+    if (wantsToAdd != true || !mounted) return;
+
+    final saved = await showVisionKeyDialog(context, currentKey: _visionKey);
+    if (!saved || !mounted) return;
+
+    // Pick up the new key, and switch to বাংলা now that it is usable.
+    await _loadVisionKey();
+    if (_imageFile != null && mounted) {
+      setState(() => _isProcessing = true);
+      _processImage();
     }
   }
 
@@ -533,14 +644,6 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildScriptSelector(bool isDark) {
-    const scripts = <(TextRecognitionScript, String)>[
-      (TextRecognitionScript.latin, 'English'),
-      (TextRecognitionScript.devanagiri, 'Hindi'),
-      (TextRecognitionScript.chinese, '中文'),
-      (TextRecognitionScript.japanese, '日本語'),
-      (TextRecognitionScript.korean, '한국어'),
-    ];
-
     return Container(
       height: 46,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -548,48 +651,31 @@ class _OcrPageState extends State<OcrPage> with SingleTickerProviderStateMixin {
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          for (final (script, label) in scripts)
+          for (final lang in _languages)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: ChoiceChip(
-                label: Text(label, style: const TextStyle(fontSize: 12)),
-                selected: !_useCloud && _script == script,
-                selectedColor: Colors.teal,
+                label: Text(lang.label, style: const TextStyle(fontSize: 12)),
+                selected: _language.key == lang.key,
+                selectedColor: lang.cloud ? Colors.indigo : Colors.teal,
                 labelStyle: TextStyle(
                   fontSize: 12,
-                  color: !_useCloud && _script == script ? Colors.white : null,
+                  color: _language.key == lang.key ? Colors.white : null,
                 ),
                 onSelected: (_) {
-                  if (!_useCloud && _script == script) return;
+                  if (_language.key == lang.key) return;
+                  if (lang.cloud && _visionKey.isEmpty) {
+                    _promptForVisionKey();
+                    return;
+                  }
                   setState(() {
-                    _useCloud = false;
-                    _script = script;
+                    _language = lang;
                     _isProcessing = true;
                   });
                   if (_imageFile != null) _processImage();
                 },
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              label: const Text('বাংলা (Cloud)', style: TextStyle(fontSize: 12)),
-              selected: _useCloud,
-              selectedColor: Colors.indigo,
-              labelStyle: TextStyle(
-                fontSize: 12,
-                color: _useCloud ? Colors.white : null,
-              ),
-              onSelected: (_) {
-                if (_useCloud) return;
-                setState(() {
-                  _useCloud = true;
-                  _isProcessing = true;
-                });
-                if (_imageFile != null) _processImage();
-              },
-            ),
-          ),
         ],
       ),
     );
