@@ -9,6 +9,10 @@ class ToolsPage extends StatelessWidget {
     await ImportUtils.importImages(context);
   }
 
+  Future<void> _importPdf(BuildContext context) async {
+    await ImportUtils.importPdf(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -25,7 +29,7 @@ class ToolsPage extends StatelessWidget {
           ]),
           const SizedBox(height: 24),
           _buildCategory('EDIT', [
-            _ToolItem(Icons.upload_file, 'Import Files', Colors.teal, onTap: () => _importImages(context)),
+            _ToolItem(Icons.picture_as_pdf, 'Import PDF', Colors.teal, onTap: () => _importPdf(context)),
             _ToolItem(Icons.draw, 'Sign', Colors.deepPurple, onTap: () => context.push('/signature')),
             _ToolItem(Icons.branding_watermark, 'Add Watermark', Colors.indigo, onTap: () => context.push('/watermark')),
             _ToolItem(Icons.merge_type, 'Merge PDFs', Colors.blueAccent, onTap: () => context.push('/pdf_merge')),

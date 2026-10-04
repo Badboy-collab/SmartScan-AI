@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import '../../features/documents/presentation/providers/document_provider.dart';
 import '../../features/documents/domain/entities/scanned_document.dart';
 import '../../features/scanner/domain/entities/document_corners.dart';
+import '../../features/tools/data/services/pdf_import_service.dart';
 import '../../core/di/injection.dart';
 import 'document_naming.dart';
 
@@ -84,6 +86,58 @@ class ImportUtils {
       }
     } catch (e) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  /// Imports an outside PDF as an ordinary document: every page is rendered to
+  /// an image, so the viewer, OCR, export, watermark, reorder and protect tools
+  /// work on it exactly like on a scan.
+  static Future<void> importPdf(BuildContext context) async {
+    try {
+      final picked = await PdfImportService().pickPdf();
+      if (picked == null || !context.mounted) return; // Cancelled.
+
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Importing PDF pages…')),
+      );
+
+      final appDir = await getApplicationDocumentsDirectory();
+      final docId = const Uuid().v4();
+      final docDir = Directory(p.join(appDir.path, 'documents', docId));
+
+      final pages = await PdfImportService()
+          .renderPdfPages(picked.path, outDir: docDir.path);
+      if (pages.isEmpty) {
+        throw Exception('That PDF has no pages to import.');
+      }
+
+      final now = DateTime.now();
+      final doc = ScannedDocument(
+        id: docId,
+        name: picked.name.isEmpty ? defaultDocumentName(now) : picked.name,
+        createdAt: now,
+        updatedAt: now,
+        pagePaths: pages,
+        thumbnailPath: pages.first,
+        dirPath: docDir.path,
+      );
+
+      await getIt<DocumentProvider>().addDocument(doc);
+      messenger.hideCurrentSnackBar();
+      if (context.mounted) context.push('/document_viewer', extra: doc);
+    } on PlatformException catch (e) {
+      if (context.mounted) {
+        final message = e.code == 'PASSWORD'
+            ? 'This PDF is password protected. Remove the password first, then import it.'
+            : 'Could not import the PDF: ${e.message}'
+                '${e.code == 'NO_PICKER' ? '\nInstall a file manager to pick files.' : ''}';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
 }

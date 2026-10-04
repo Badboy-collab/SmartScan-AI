@@ -3,24 +3,36 @@ package com.ahcreations.ah_scanner
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.media.MediaScannerConnection
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.max
 
 class MainActivity : FlutterActivity() {
     companion object {
         private const val CHANNEL = "ah_scanner/media_store"
         private const val MIME_JPEG = "image/jpeg"
         private const val FOLDER_NAME = "AH Scanner"
+        private const val REQUEST_PICK_PDF = 4711
     }
+
+    /** Kept until the system PDF picker comes back with a file (or a cancel). */
+    private var pendingPick: MethodChannel.Result? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -124,9 +136,147 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    // PDF import: the system picker hands back a PDF, then the
+                    // platform renderer turns its pages into images.
+                    "pickPdf" -> pickPdf(result)
+                    "renderPdfPages" -> renderPdfPages(call, result)
+
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Opens the system document picker filtered to PDFs.
+     *
+     * The picked file is copied into the app cache, because a `content://` URI
+     * cannot be read by `dart:io` and the picker's grant would not survive the
+     * trip through Flutter.
+     */
+    private fun pickPdf(result: MethodChannel.Result) {
+        if (pendingPick != null) {
+            result.error("BUSY", "A PDF picker is already open", null)
+            return
+        }
+        pendingPick = result
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/pdf"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivityForResult(intent, REQUEST_PICK_PDF)
+        } catch (e: Exception) {
+            pendingPick = null
+            result.error("NO_PICKER", e.message, null)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_PICK_PDF) return
+
+        val result = pendingPick ?: return
+        pendingPick = null
+
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            result.success(null) // User backed out - not an error.
+            return
+        }
+
+        try {
+            val dir = File(cacheDir, "imported_pdf")
+            if (!dir.exists()) dir.mkdirs()
+            val target = File(dir, "import_${System.currentTimeMillis()}.pdf")
+
+            contentResolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("Could not read the selected file")
+
+            result.success(
+                mapOf(
+                    "path" to target.absolutePath,
+                    "name" to pdfDisplayName(uri, target.name),
+                )
+            )
+        } catch (e: Exception) {
+            result.error("COPY_FAILED", e.message, null)
+        }
+    }
+
+    /** The file's own name, which becomes the document name after import. */
+    private fun pdfDisplayName(uri: Uri, fallback: String): String {
+        runCatching {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) return cursor.getString(index)
+            }
+        }
+        return fallback
+    }
+
+    /** Rasterises every page of a PDF; kept off the UI thread, it takes seconds. */
+    private fun renderPdfPages(call: MethodCall, result: MethodChannel.Result) {
+        val pdfPath = call.argument<String>("path")
+        val outDir = call.argument<String>("outDir")
+        val maxWidth = call.argument<Int>("maxWidth") ?: 1600
+
+        if (pdfPath == null || outDir == null) {
+            result.error("BAD_ARGS", "path and outDir are required", null)
+            return
+        }
+
+        Thread {
+            try {
+                val pages = renderPdfToJpegs(File(pdfPath), File(outDir), maxWidth)
+                runOnUiThread { result.success(pages) }
+            } catch (e: SecurityException) {
+                // Password-protected PDFs land here; say so instead of failing oddly.
+                runOnUiThread { result.error("PASSWORD", e.message, null) }
+            } catch (e: Exception) {
+                runOnUiThread { result.error("RENDER_FAILED", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun renderPdfToJpegs(pdf: File, outDir: File, maxWidth: Int): List<String> {
+        if (!outDir.exists() && !outDir.mkdirs()) {
+            throw IllegalStateException("Could not create ${outDir.absolutePath}")
+        }
+
+        val paths = mutableListOf<String>()
+        ParcelFileDescriptor.open(pdf, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRenderer(descriptor).use { renderer ->
+                for (index in 0 until renderer.pageCount) {
+                    renderer.openPage(index).use { page ->
+                        // Cap the width so a 300dpi page cannot exhaust memory.
+                        val scale = if (page.width > maxWidth) {
+                            maxWidth.toFloat() / page.width
+                        } else {
+                            1f
+                        }
+                        val width = max(1, (page.width * scale).toInt())
+                        val height = max(1, (page.height * scale).toInt())
+
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        // A PDF page is transparent where it has no ink, and the rest
+                        // of the app expects white paper.
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                        val out = File(outDir, "page_${index + 1}.jpg")
+                        FileOutputStream(out).use { stream ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+                        }
+                        bitmap.recycle()
+                        paths.add(out.absolutePath)
+                    }
+                }
+            }
+        }
+        return paths
     }
 
     /**
