@@ -15,6 +15,7 @@ import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -140,6 +141,25 @@ class MainActivity : FlutterActivity() {
                     // platform renderer turns its pages into images.
                     "pickPdf" -> pickPdf(result)
                     "renderPdfPages" -> renderPdfPages(call, result)
+
+                    // In-app updater: whether Android will let this app install
+                    // an APK, and the switch that grants it when it will not.
+                    "canInstallPackages" ->
+                        result.success(packageManager.canRequestPackageInstalls())
+
+                    "openInstallSettings" -> {
+                        try {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:$packageName")
+                                )
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
 
                     else -> result.notImplemented()
                 }

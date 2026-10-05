@@ -1,0 +1,16 @@
+name: ah_logic_tests
+description: "Dependency-free tests for AH Scanner's pure logic (naming, version compare, release parsing)."
+publish_to: 'none'
+
+# This little package exists so the pure logic can actually be tested on a
+# machine where `flutter test` cannot run: the app depends on dartcv4/OpenCV,
+# whose build hook needs a full desktop C/C++ toolchain. Running tests from
+# inside that package would trigger the hook and fail; a separate package with
+# no dependencies has no hooks at all.
+#
+# Run with:
+#   cd test_logic
+#   dart pub get          (offline-friendly - there are no dependencies)
+#   dart run run_tests.dart
+environment:
+  sdk: ^3.12.2

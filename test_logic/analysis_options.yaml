@@ -1,0 +1,8 @@
+# This package exists only to run the app's pure logic: it imports the app's
+# `lib/` files relatively (there is no package graph, purposefully - see
+# pubspec.yaml) and prints its results, because it is a test runner rather than
+# production code. Both of those are intentional here.
+linter:
+  rules:
+    avoid_print: false
+    avoid_relative_lib_imports: false

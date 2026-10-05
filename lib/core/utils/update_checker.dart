@@ -1,6 +1,7 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+
+import 'release_parser.dart';
+import 'version_compare.dart';
 
 /// A newer build published on the project's GitHub releases page.
 class UpdateInfo {
@@ -23,6 +24,11 @@ class UpdateInfo {
 
   /// GitHub release page, always available.
   final String releaseUrl;
+
+  /// `true` when [downloadUrl] points at an installable APK rather than a page.
+  /// The in-app updater only downloads the former; otherwise it hands the link
+  /// to the browser.
+  bool get hasApkAsset => downloadUrl.toLowerCase().endsWith('.apk');
 }
 
 /// Outcome of one check.
@@ -44,7 +50,9 @@ class UpdateCheck {
 /// Checks GitHub Releases for a newer AH Scanner build.
 ///
 /// Deliberately dependency-free (uses `http`, which the app already ships) and
-/// failure-tolerant: nothing here may ever block or crash the app.
+/// failure-tolerant: nothing here may ever block or crash the app. The response
+/// parsing and version comparison live in their own pure files so they can be
+/// unit tested without the native toolchain - see `test_logic/`.
 class UpdateChecker {
   UpdateChecker._();
 
@@ -66,35 +74,20 @@ class UpdateChecker {
       if (response.statusCode == 404) return UpdateCheck.noRelease;
       if (response.statusCode != 200) return UpdateCheck.unreachable;
 
-      final body = jsonDecode(response.body);
-      if (body is! Map<String, dynamic>) return UpdateCheck.noRelease;
-
-      final tag = (body['tag_name'] as String?)?.trim();
-      if (tag == null || tag.isEmpty) return UpdateCheck.noRelease;
-
-      final releaseUrl = (body['html_url'] as String?)?.trim() ?? '';
-
-      String? apkUrl;
-      final assets = body['assets'];
-      if (assets is List) {
-        for (final asset in assets) {
-          if (asset is! Map) continue;
-          final name = (asset['name'] as String? ?? '').toLowerCase();
-          final url = asset['browser_download_url'] as String?;
-          if (name.endsWith('.apk') && url != null && url.isNotEmpty) {
-            apkUrl = url;
-            break;
-          }
-        }
-      }
+      final release = parseLatestRelease(response.body);
+      if (release == null) return UpdateCheck.noRelease;
 
       return UpdateCheck(
         reachedServer: true,
         info: UpdateInfo(
-          version: tag,
-          notes: (body['body'] as String? ?? '').trim(),
-          downloadUrl: apkUrl ?? releaseUrl,
-          releaseUrl: releaseUrl,
+          version: release.version,
+          notes: release.notes,
+          // Releases without an APK asset still offer their page, which keeps
+          // the update button useful instead of dead.
+          downloadUrl: release.apkUrl.isNotEmpty
+              ? release.apkUrl
+              : release.releaseUrl,
+          releaseUrl: release.releaseUrl,
         ),
       );
     } catch (_) {
@@ -104,25 +97,5 @@ class UpdateChecker {
   }
 
   /// `a` newer than `b` → positive, equal → 0, older → negative.
-  /// Only the numeric `major.minor.patch` part is compared; a leading `v` and
-  /// any `+build` suffix are ignored.
-  static int compareVersions(String a, String b) {
-    final left = _parts(a);
-    final right = _parts(b);
-    for (int i = 0; i < 3; i++) {
-      final diff = left[i] - right[i];
-      if (diff != 0) return diff;
-    }
-    return 0;
-  }
-
-  static List<int> _parts(String raw) {
-    final cleaned = raw.trim().replaceFirst(RegExp(r'^[vV]'), '').split('+').first;
-    final segments = cleaned.split('.');
-    return List<int>.generate(3, (index) {
-      if (index >= segments.length) return 0;
-      final match = RegExp(r'\d+').firstMatch(segments[index]);
-      return match == null ? 0 : (int.tryParse(match.group(0)!) ?? 0);
-    });
-  }
+  static int compareVersions(String a, String b) => compareVersionStrings(a, b);
 }
