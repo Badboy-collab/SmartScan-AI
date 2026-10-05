@@ -103,9 +103,7 @@ class HomePage extends StatelessWidget {
                   ImportUtils.importImages(context);
                   break;
                 case 3: // Import Files
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('PDF / document import coming soon!')),
-                  );
+                  ImportUtils.importPdf(context);
                   break;
                 case 4: // ID Card
                   context.push('/id_card_scanner');

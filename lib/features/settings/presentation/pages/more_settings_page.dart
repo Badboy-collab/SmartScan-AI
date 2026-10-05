@@ -1,6 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/utils/app_settings.dart';
 import '../../../../core/utils/gallery_saver.dart';
@@ -43,12 +44,6 @@ class MoreSettingsPage extends StatelessWidget {
           Divider(height: 1, color: dividerColor),
           _buildItem(
             context,
-            'Security & Backup',
-            onTap: () => _showSecurityBackupSheet(context),
-          ),
-          Divider(height: 1, color: dividerColor),
-          _buildItem(
-            context,
             'Free Up Space',
             onTap: () => _showFreeUpSpaceSheet(context),
           ),
@@ -57,12 +52,6 @@ class MoreSettingsPage extends StatelessWidget {
             context,
             'Image to Text',
             onTap: () => _showOcrSettingsSheet(context),
-          ),
-          Divider(height: 1, color: dividerColor),
-          _buildItem(
-            context,
-            'Notification Settings',
-            onTap: () => _showNotificationSheet(context),
           ),
           Divider(height: 1, color: dividerColor),
           _buildItem(
@@ -135,38 +124,9 @@ class MoreSettingsPage extends StatelessWidget {
     );
   }
 
-  void _showSecurityBackupSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Security & Backup', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).textTheme.bodyLarge?.color)),
-            const SizedBox(height: 16),
-            SwitchListTile(
-              title: const Text('Auto Cloud Backup'),
-              subtitle: const Text('Automatically sync documents to cloud'),
-              value: false,
-              onChanged: (v) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cloud backup requires an active account')));
-              },
-            ),
-            SwitchListTile(
-              title: const Text('App Lock (Biometrics)'),
-              subtitle: const Text('Require fingerprint to open AH Scanner'),
-              value: false,
-              onChanged: (v) {},
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // "Security & Backup" is gone on purpose: it offered an app lock and cloud
+  // backup, neither of which exists - app lock needs a biometrics plugin we do
+  // not depend on yet, and there is no account or cloud to back up to.
 
   void _showFreeUpSpaceSheet(BuildContext context) {
     showModalBottomSheet(
@@ -226,7 +186,15 @@ class MoreSettingsPage extends StatelessWidget {
     );
   }
 
-  void _showOcrSettingsSheet(BuildContext context) {
+  Future<void> _showOcrSettingsSheet(BuildContext context) async {
+    // Facts only: this sheet used to claim "Latin / English (Auto-detect)" and
+    // "Table & Form Recognition: Enabled" with check marks, neither of which
+    // was configurable nor even accurate.
+    final prefs = await SharedPreferences.getInstance();
+    final bool hasKey =
+        (prefs.getString('google_vision_api_key') ?? '').trim().isNotEmpty;
+    if (!context.mounted) return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).cardColor,
@@ -239,17 +207,25 @@ class MoreSettingsPage extends StatelessWidget {
           children: [
             Text('Image to Text (OCR) Engine', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).textTheme.bodyLarge?.color)),
             const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.language, color: Colors.teal),
-              title: const Text('Default Recognition Language'),
-              subtitle: const Text('Latin / English (Auto-detect)'),
-              trailing: const Icon(Icons.check, color: Colors.teal),
+            const ListTile(
+              leading: Icon(Icons.translate, color: Colors.teal),
+              title: Text('Supported languages'),
+              subtitle: Text('English and other Latin scripts run on-device (offline); Bengali (bn) runs on Google Cloud Vision'),
             ),
             ListTile(
-              leading: const Icon(Icons.grid_on, color: Colors.teal),
-              title: const Text('Table & Form Recognition'),
-              subtitle: const Text('Enabled (Excel / CSV export)'),
-              trailing: const Icon(Icons.check, color: Colors.teal),
+              leading: const Icon(Icons.key_outlined, color: Colors.teal),
+              title: const Text('Bengali needs a Vision API key'),
+              subtitle: Text(hasKey
+                  ? 'API key configured'
+                  : 'No key yet - add one under "OCR - Vision API Key"'),
+              trailing: hasKey
+                  ? const Icon(Icons.check_circle, color: Colors.green)
+                  : const Icon(Icons.error_outline, color: Colors.orange),
+            ),
+            const ListTile(
+              leading: Icon(Icons.grid_on, color: Colors.teal),
+              title: Text('Exporting recognized text'),
+              subtitle: Text('Excel, Word or PowerPoint, from the export menu on the OCR page'),
             ),
           ],
         ),
@@ -257,36 +233,17 @@ class MoreSettingsPage extends StatelessWidget {
     );
   }
 
-  void _showNotificationSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Notification Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).textTheme.bodyLarge?.color)),
-            const SizedBox(height: 16),
-            SwitchListTile(
-              title: const Text('Document Processing Alerts'),
-              value: true,
-              onChanged: (v) {},
-            ),
-            SwitchListTile(
-              title: const Text('Cloud Sync Notifications'),
-              value: true,
-              onChanged: (v) {},
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // "Notification Settings" is gone: the app posts no notifications at all, so
+  // its two switches (both stuck at value: true, empty onChanged) were pure UI.
 
-  void _showPermissionManager(BuildContext context) {
+  Future<void> _showPermissionManager(BuildContext context) async {
+    // Read the real state first: this sheet used to print a hard-coded
+    // "Granted" for camera and storage whether or not they were granted.
+    final PermissionStatus camera = await Permission.camera.status;
+    final PermissionStatus photos = await Permission.photos.status;
+    final PermissionStatus storage = await Permission.storage.status;
+    if (!context.mounted) return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).cardColor,
@@ -298,18 +255,14 @@ class MoreSettingsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Permission Manager', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).textTheme.bodyLarge?.color)),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Colors.teal),
-              title: const Text('Camera Permission'),
-              subtitle: const Text('Granted'),
-              trailing: const Icon(Icons.check_circle, color: Colors.green),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library, color: Colors.teal),
-              title: const Text('Storage / Photos Permission'),
-              subtitle: const Text('Granted'),
-              trailing: const Icon(Icons.check_circle, color: Colors.green),
+            const SizedBox(height: 12),
+            _permissionRow(Icons.camera_alt, 'Camera (scanning)', camera),
+            _permissionRow(Icons.photo_library, 'Photos (Android 13+)', photos),
+            _permissionRow(Icons.folder, 'Storage (Android 12 and below)', storage),
+            const SizedBox(height: 4),
+            Text(
+              'Scans are saved through Android\'s MediaStore, so Android 13+ needs no storage permission.',
+              style: TextStyle(fontSize: 11, color: Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.7)),
             ),
             const SizedBox(height: 8),
             Center(
@@ -321,6 +274,27 @@ class MoreSettingsPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _permissionRow(IconData icon, String title, PermissionStatus status) {
+    Color color = Colors.orange;
+    String label = 'Not granted';
+    if (status.isGranted || status == PermissionStatus.limited) {
+      color = Colors.green;
+      label = 'Granted';
+    } else if (status == PermissionStatus.permanentlyDenied || status == PermissionStatus.restricted) {
+      color = Colors.redAccent;
+      label = 'Blocked - enable it in system settings';
+    }
+    return ListTile(
+      leading: Icon(icon, color: Colors.teal),
+      title: Text(title),
+      subtitle: Text(label, style: TextStyle(color: color, fontSize: 12)),
+      trailing: Icon(
+        status.isGranted ? Icons.check_circle : Icons.error_outline,
+        color: color,
       ),
     );
   }
