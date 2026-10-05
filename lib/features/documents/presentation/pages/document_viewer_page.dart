@@ -772,21 +772,13 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
                     ],
                   ),
                 ),
-                Row(
-                  children: const [
-                    Expanded(child: Center(child: Text('Share File', style: TextStyle(color: Color(0xFF00ACC1), fontWeight: FontWeight.bold, fontSize: 15)))),
-                    Expanded(child: Center(child: Text('Share Link', style: TextStyle(color: Colors.white54, fontSize: 15)))),
-                  ],
+                const Center(
+                  child: Text('Share File', style: TextStyle(color: Color(0xFF00ACC1), fontWeight: FontWeight.bold, fontSize: 15)),
                 ),
                 Container(
                   height: 2,
                   margin: const EdgeInsets.only(top: 8),
-                  child: Row(
-                    children: [
-                      Expanded(child: Container(color: const Color(0xFF00ACC1))),
-                      Expanded(child: Container(color: Colors.transparent)),
-                    ],
-                  ),
+                  color: const Color(0xFF00ACC1),
                 ),
                 Expanded(
                   child: ListView(
@@ -810,7 +802,7 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
                         Navigator.pop(ctx);
                         _sharePdf();
                       }),
-                      _buildShareOptionItem(Icons.description, 'Share Word', _pdfSize, isPremium: true, onTap: () {
+                      _buildShareOptionItem(Icons.description, 'Share Word', _pdfSize, onTap: () {
                         Navigator.pop(ctx);
                         context.push('/convert_document', extra: {'document': _doc, 'format': ExportFormatType.word});
                       }),
@@ -833,7 +825,7 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
     );
   }
 
-  Widget _buildShareOptionItem(IconData icon, String title, String size, {bool isPremium = false, required VoidCallback onTap}) {
+  Widget _buildShareOptionItem(IconData icon, String title, String size, {required VoidCallback onTap}) {
     return ListTile(
       leading: Icon(icon, color: Colors.white, size: 26),
       title: Row(
@@ -843,10 +835,6 @@ class _DocumentViewerPageState extends State<DocumentViewerPage> {
             const SizedBox(width: 8),
             Text('($size)', style: const TextStyle(color: Colors.white54, fontSize: 12)),
           ],
-          if (isPremium) ...[
-            const SizedBox(width: 8),
-            const Icon(Icons.workspace_premium, color: Colors.amber, size: 16),
-          ]
         ],
       ),
       onTap: onTap,

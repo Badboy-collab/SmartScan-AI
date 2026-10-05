@@ -1,17 +1,33 @@
 import 'dart:io' as dart_io;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/utils/app_info.dart';
+import '../../../../core/utils/app_launcher.dart';
+import '../../../../core/utils/update_checker.dart';
 import '../../../update/presentation/update_prompt.dart';
 import '../../../../core/theme/theme_notifier.dart';
 import '../../../../main.dart';
 import '../../../documents/presentation/providers/document_provider.dart';
 import '../../../ocr/presentation/widgets/vision_key_dialog.dart';
 
+/// The "Me" tab.
+///
+/// Every row here leads somewhere real. An earlier version advertised a bound
+/// AH Scanner account with 10 GB of cloud storage, "Pro privileges", points,
+/// sync and business features - none of which exist in this app - and half of
+/// the rows did nothing when tapped.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
+
+  /// Where this app actually lives. Used for "recommend" and "feedback",
+  /// neither of which needs an account or a backend.
+  static const String _repoUrl =
+      'https://github.com/${UpdateChecker.owner}/${UpdateChecker.repo}';
+  static const String _issuesUrl = '$_repoUrl/issues';
+  static const String _latestReleaseUrl = '$_repoUrl/releases/latest';
 
   @override
   Widget build(BuildContext context) {
@@ -26,8 +42,7 @@ class SettingsPage extends StatelessWidget {
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            _buildTopBanner(context),
-            _buildActionGrid(context),
+            _buildHeader(context),
             const SizedBox(height: 8),
             _buildSettingsList(context, dividerColor),
           ],
@@ -36,115 +51,60 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildTopBanner(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFFFE0B2), Color(0xFFFFB74D)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      padding: const EdgeInsets.only(top: 16, bottom: 24, left: 16, right: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              IconButton(icon: const Icon(Icons.crop_free, color: Colors.black87), onPressed: () {}),
-              IconButton(icon: const Icon(Icons.message, color: Colors.black87), onPressed: () {}),
-            ],
-          ),
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: Colors.white70,
-                child: const Icon(Icons.person, size: 36, color: Color(0xFFE65100)),
-              ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Bind Phone/Email', style: TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold)),
-                    SizedBox(height: 4),
-                    Text(
-                      'Bind AH Scanner account for 10GB cloud space and multi-device sync',
-                      style: TextStyle(color: Colors.black54, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFECCC),
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 2))
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text('AH Scanner Pro', style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text('20+ Pro Privileges Active', style: TextStyle(color: Colors.black54, fontSize: 12)),
-                  ],
-                ),
-                const Icon(Icons.chevron_right, color: Colors.black87),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionGrid(BuildContext context) {
+  Widget _buildHeader(BuildContext context) {
     final theme = Theme.of(context);
+    final muted = theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
+
     return Container(
       color: theme.cardColor,
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildGridItem(context, Icons.cloud_upload, 'Cloud Space', Colors.blue),
-          _buildGridItem(context, Icons.business_center, 'Business', Colors.teal),
-          _buildGridItem(context, Icons.task_alt, 'Tasks', Colors.deepOrange),
-          _buildGridItem(context, Icons.monetization_on, 'Points\n0 Points', Colors.amber[800]!),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.asset(
+              'assets/images/app_logo.png',
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'AH Scanner',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: theme.textTheme.bodyLarge?.color,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Scan • Enhance • OCR',
+                  style: TextStyle(fontSize: 12, color: Colors.teal, letterSpacing: 0.3),
+                ),
+                const SizedBox(height: 4),
+                FutureBuilder<AppInfo>(
+                  future: AppInfo.load(),
+                  builder: (context, snapshot) {
+                    final info = snapshot.data;
+                    return Text(
+                      info == null
+                          ? 'Version …'
+                          : 'Version ${info.versionName} (${info.versionCode})',
+                      style: TextStyle(fontSize: 12, color: muted),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildGridItem(BuildContext context, IconData icon, String label, Color color) {
-    final theme = Theme.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: color, size: 26),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 11, fontWeight: FontWeight.w500),
-        ),
-      ],
     );
   }
 
@@ -159,20 +119,16 @@ class SettingsPage extends StatelessWidget {
             _showThemeSelectorDialog(context);
           }),
           Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.person_outline, 'Account'),
+          _buildListTile(context, Icons.folder_open_outlined, 'Manage Documents', onTap: () {
+            context.go('/documents');
+          }),
           Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.cloud_sync_outlined, 'Sync'),
-          Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.document_scanner_outlined, 'Scan Settings'),
+          _buildListTile(context, Icons.document_scanner_outlined, 'Camera & Save Settings', onTap: () {
+            context.push('/more_settings');
+          }),
           Divider(color: dividerColor, height: 1),
           _buildListTile(context, Icons.key_outlined, 'OCR — Vision API Key', onTap: () {
             _showVisionApiKeyDialog(context);
-          }),
-          Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.folder_open_outlined, 'Manage Documents'),
-          Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.settings_outlined, 'More Settings', onTap: () {
-            context.push('/more_settings');
           }),
           Divider(color: dividerColor, height: 1),
           _buildListTile(context, Icons.system_update_alt, 'Check for Updates', onTap: () {
@@ -183,14 +139,40 @@ class SettingsPage extends StatelessWidget {
             _showAboutDialog(context);
           }),
           Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.thumb_up_outlined, 'Recommend AH Scanner'),
+          _buildListTile(context, Icons.thumb_up_outlined, 'Recommend AH Scanner', onTap: () {
+            _recommend();
+          }),
           Divider(color: dividerColor, height: 1),
-          _buildListTile(context, Icons.help_outline, 'Help & Feedback'),
+          _buildListTile(context, Icons.help_outline, 'Help & Feedback', onTap: () {
+            _open(context, _issuesUrl);
+          }),
           Divider(color: dividerColor, height: 1),
           const _StorageStatWidget(),
         ],
       ),
     );
+  }
+
+  /// Shares the download link through whatever the user uses to chat - the
+  /// whole "tell a friend" flow needs no account on our side.
+  Future<void> _recommend() async {
+    try {
+      await SharePlus.instance.share(ShareParams(
+        text: 'AH Scanner — scan, enhance, OCR and convert documents.\n'
+            'Download: $_latestReleaseUrl',
+      ));
+    } catch (_) {
+      // A cancelled or unsupported share sheet is not worth an error dialog.
+    }
+  }
+
+  Future<void> _open(BuildContext context, String url) async {
+    final opened = await openExternalUrl(url);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the link')),
+      );
+    }
   }
 
   void _showAboutDialog(BuildContext context) {
@@ -317,15 +299,15 @@ class SettingsPage extends StatelessWidget {
   Widget _buildListTile(BuildContext context, IconData icon, String title, {String? trailingText, VoidCallback? onTap}) {
     final theme = Theme.of(context);
     return ListTile(
-      leading: Icon(icon, color: theme.iconTheme.color?.withOpacity(0.7) ?? Colors.grey),
+      leading: Icon(icon, color: theme.iconTheme.color?.withValues(alpha: 0.7) ?? Colors.grey),
       title: Text(title, style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontSize: 15, fontWeight: FontWeight.w500)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (trailingText != null)
-            Text(trailingText, style: TextStyle(color: Colors.teal, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(trailingText, style: const TextStyle(color: Colors.teal, fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(width: 4),
-          Icon(Icons.chevron_right, color: theme.iconTheme.color?.withOpacity(0.4) ?? Colors.grey, size: 18),
+          Icon(Icons.chevron_right, color: theme.iconTheme.color?.withValues(alpha: 0.4) ?? Colors.grey, size: 18),
         ],
       ),
       onTap: onTap,
@@ -370,9 +352,9 @@ class _StorageStatWidgetState extends State<_StorageStatWidget> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
-      leading: Icon(Icons.storage, color: theme.iconTheme.color?.withOpacity(0.7) ?? Colors.grey),
+      leading: Icon(Icons.storage, color: theme.iconTheme.color?.withValues(alpha: 0.7) ?? Colors.grey),
       title: Text('Local Storage Used', style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontSize: 15, fontWeight: FontWeight.w500)),
-      trailing: Text(_usedSpace, style: TextStyle(color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6), fontSize: 13)),
+      trailing: Text(_usedSpace, style: TextStyle(color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6), fontSize: 13)),
     );
   }
 }

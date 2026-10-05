@@ -13,8 +13,6 @@ import '../../features/tools/presentation/pages/tools_page.dart';
 import '../../features/ocr/presentation/pages/ocr_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/settings/presentation/pages/more_settings_page.dart';
-import '../../features/premium/presentation/pages/account_page.dart';
-import '../../features/premium/presentation/pages/premium_page.dart';
 import '../../features/tools/presentation/pages/qr_scanner_page.dart';
 import '../../features/tools/presentation/pages/id_card_scanner_page.dart';
 import '../../features/tools/presentation/pages/pdf_merge_page.dart';
@@ -135,16 +133,6 @@ class AppRouter {
         builder: (context, state) => OcrPage(
           initialFormat: state.uri.queryParameters['mode'] ?? 'text',
         ),
-      ),
-      GoRoute(
-        parentNavigatorKey: _rootNavigatorKey,
-        path: '/premium',
-        builder: (context, state) => const PremiumPage(),
-      ),
-      GoRoute(
-        parentNavigatorKey: _rootNavigatorKey,
-        path: '/account',
-        builder: (context, state) => const AccountPage(),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
